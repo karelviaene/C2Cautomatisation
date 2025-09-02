@@ -149,6 +149,7 @@ try:
 # except sqlite3.Error as e:
 #     print("SQLite error:", e, cas_number)
 
+
 finally:
     if connection:
         connection.close()
