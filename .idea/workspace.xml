@@ -7,12 +7,12 @@
     <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/CPS/CPS_CAS 102-76-1.xlsx" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/CPS/CPS_CAS 102-76-1.xlsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/CPS/CPS_CAS 616-47-7.xlsx" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/CPS/CPS_CAS 616-47-7.xlsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/CPS/CPS_CAS 68213-23-0.xlsx" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/CPS/CPS_CAS 68213-23-0.xlsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/CPS/CPS_CAS 111-11-1.xlsx" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/CPS/CPS_CAS 111-11-1.xlsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/CPS_CAS 111-11-1.xlsx" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/CPS_CAS 111-11-1.xlsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/~$CPS_CAS 2236574‑51‑7.xlsx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/~$CPS_CAS 111-11-1.xlsx" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

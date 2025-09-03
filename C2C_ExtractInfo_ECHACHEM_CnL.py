@@ -1,4 +1,5 @@
-#### This script collects all the C&L info from ECHA-CHEM and stores it in a json file. It also adds key information to the ECHACHEM_CL SQLite database
+#### This script collects all the C&L info from ECHA-CHEM for a list of CAS (loaded from an Excel) and
+# stores it in a json file. It also adds key information to the ECHACHEM_CL SQLite database
 
 #### Code to get C&L url based on a CAS number ####
 import requests
@@ -9,7 +10,6 @@ from tkinter import filedialog
 import os
 import json
 import sqlite3
-import re
 
 # Function to load in a file
 def select_file():
