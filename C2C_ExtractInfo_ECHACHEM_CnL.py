@@ -1,4 +1,4 @@
-print("Running ECHA-CHEM extraction")
+#### This script collects all the C&L info from ECHA-CHEM and stores it in a json file. It also adds key information to the ECHACHEM_CL SQLite database
 
 #### Code to get C&L url based on a CAS number ####
 import requests
@@ -59,15 +59,15 @@ def file_downloaded_today(file_path):
 
 ### SET UP ###
 # Load the CSV file with CAS numbers
-# print("Loading xlsx file")
-# file_path = select_file()
-# CASallpd = pd.read_excel(file_path)
-# if "CAS" in CASallpd.columns:
-#     CASall = [cas.strip() for cas in CASallpd['CAS'].dropna().tolist()] # Also remove white spaces per CAS
-# else:
-#     print("The 'CAS' column was not found in the Excel file.")
+print("Loading xlsx file")
+file_path = select_file()
+CASallpd = pd.read_excel(file_path)
+if "CAS" in CASallpd.columns:
+    CASall = [cas.strip() for cas in CASallpd['CAS'].dropna().tolist()] # Also remove white spaces per CAS
+else:
+    print("The 'CAS' column was not found in the Excel file.")
 
-CASall =["37872-24-5", "8028-89-5"]
+# CASall =["37872-24-5", "8028-89-5"]
 formatted_cas = [{"casNumber": cas, "ecNumber": ""} for cas in CASall]
 formatted_ec = [{"casNumber": "", "ecNumber": ec} for ec in CASall]
 
@@ -80,9 +80,9 @@ headers = {
 }
 data = formatted_cas
 response = requests.post(url, headers=headers, json=data)
+CnL_json = response.json()["output"]
 
 print("Status Code:", response.status_code)
-print("Response JSON:", response.json())
 
 # Save to a JSON file
 currentdir = os.getcwd()
@@ -98,59 +98,68 @@ with open(exportjson, "w") as json_file:
 #### Upload info to CnL database ####
 
 # Define the path to your SQLite database file
-db_path = os.path.join("/Users/arche/Arche Dropbox/C2C/08_Chemical Profiling/Database/C2Cdatabase.db")
-C2Cfiles_path = "/Users/arche/Arche Dropbox/C2C/08_Chemical Profiling"
+# db_path = os.path.join("/Users/arche/Arche Dropbox/C2C/08_Chemical Profiling/Database/C2Cdatabase.db")
+# C2Cfiles_path = "/Users/arche/Arche Dropbox/C2C/08_Chemical Profiling"
+C2Cpath = "/Users/arche/Documents/Python/C2Cautomatisation/Testing"
+db_path = os.path.join(C2Cpath,"Database/C2Cdatabase.db")
+C2Cfiles_path = os.path.join(C2Cpath,"CPS")
 
 #### Create/update C2C database with CAS numbers from Excel files ####
 
 try:
     connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    # Ensure ECHACHEM_CL table exists
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ECHACHEM_CL (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        code TEXT ,
+        on_cl TEXT,
+        cas TEXT,
+        ec TEXT,
+        name_echachem TEXT,
+        type_classification TEXT,
+        hazards TEXT,
+        FOREIGN KEY (code) REFERENCES DATABASE_C2C(ID)
+    )
+    """)
+
+
     print("Connected to SQLite database at:", db_path)
 
+    for entry in CnL_json:
+        print(entry)
+        # Set up dictionary to collect all relevant info
+        sqlinfo = {"code": entry.get("casNumber"), "on_cl": "-", "cas": "-", "ec": "-", "name_echachem": "-",
+                   "type_classification": "-", "hazards": "-"}
+        print(f"Adding chemical: {entry.get("casNumber")}")
 
-    # NEED A GOOD WAY TO CONVERT THE API JSON TO SQL DATABASE
+        #### ECHA-CHEM C&L from NEXTSDS-API ####
+        if entry.get("found") == False:  # If the chemical was NOT found on C&L
+            sqlinfo["on_cl"] = "No"
+        else:  # If the chemical was found on C&L (then there is no "found" entry)
+            sqlinfo["on_cl"] = "Yes"
+            sqlinfo["cas"] = entry.get("cas")
+            sqlinfo["ec"] = entry.get("ecNumber")
+            sqlinfo["name_echachem"] = entry.get("name")
+            if entry.get("isHarmonized") == True:
+                sqlinfo["type_classification"] = "Harmonized"
+            else:
+                sqlinfo["type_classification"] = "Self-classification"
+            sqlinfo["hazards"] = entry.get("hazards")["hazardClasses"]
 
-
-    # # Create table if not existing
-    # cursor = connection.cursor()
-    # cursor.execute('''
-    #     CREATE TABLE IF NOT EXISTS MainOverview (
-    #         ID TEXT PRIMARY KEY,
-    #         LastUpdate TEXT NOT NULL,
-    #         FileName TEXT NOT NULL,
-    #         Comments TEXT NOT NULL
-    #     )
-    # ''')
-
-    # Check if CAS number in database, update if available, otherwise add
-    # print(response.json()["output"])
-    # for output in response.json()["output"]:
-    #     output
-        # CASnr = output["casNumber"]
-        # ECnr = output["ecNumber"]
-        # if output["found"] != "false":  # Only add the info if it was found on ECHA-CHEM CnL
-        #     print()
-        #
-        # else:
-        #     print()
-
-    # Load the JSON file into a DataFrame
-    # CnL_df = pd.read_json('/Users/arche/Documents/Python/EDscreener/venv/output/EDscreener exportJSON 2025-07-30 15-51.json')  # Replace with your actual file path
-    # CnL_df = pd.read_json('/Users/arche/Documents/Python/EDscreener/venv/output/EDscreener exportJSON 2025-07-30 15-51.json', orient='records')
-
-    # CnL_df = pd.DataFrame(response.json()["output"])
-    # print(CnL_df)
-    #
-    # CnL_df.to_sql('CnL', connection, if_exists='append', index=False)
-
+        # Insert into ECHACHEM_CL
+        print(sqlinfo)
+        cursor.execute("""
+        INSERT INTO ECHACHEM_CL (code, on_cl, cas, ec, name_echachem, type_classification, hazards)
+        VALUES (?, ?, ?, ?, ?, ?, ?)    """,
+        (sqlinfo["code"],sqlinfo["on_cl"],sqlinfo["cas"],sqlinfo["ec"],sqlinfo["name_echachem"],sqlinfo["type_classification"],sqlinfo["hazards"]))
 
     print("SQL updated")
 
-# except sqlite3.Error as e:
-#     print("SQLite error:", e, cas_number)
-
-
 finally:
     if connection:
+        connection.commit()
         connection.close()
         print("Connection closed.")
