@@ -10,16 +10,16 @@ from datetime import datetime
 import traceback
 
 # Define the path to your SQLite database file
-# C2Cpath = "/Users/arche/Documents/Python/C2Cautomatisation/Testing"
-# C2Cfiles_path = os.path.join(C2Cpath,"CPS")
-C2Cpath = "/Users/arche/Arche Dropbox/C2C/08_Chemical Profiling/"
-C2Cfiles_path = os.path.join(C2Cpath)
+C2Cpath = "/Users/arche/Documents/Python/C2Cautomatisation/Testing"
+C2Cfiles_path = os.path.join(C2Cpath,"CPS")
+# C2Cpath = "/Users/arche/Arche Dropbox/C2C/08_Chemical Profiling/"
+# C2Cfiles_path = os.path.join(C2Cpath)
 db_path = os.path.join(C2Cpath,"Database/C2Cdatabase.db")
 
 # Format today’s date
 today = datetime.today().strftime("%Y%m%d")  # e.g., 20250903
 # Specify whether you want to load-in the CPS files or whether you want to start from a preloaded database
-READ_IN_DATA = False
+READ_IN_CPS = True
 
 #### CUSTOM FUNCTIONS ####
 # Custom function for extracting info from Excel: it takes all the info below a certain cell until an empty string is reached
@@ -404,7 +404,7 @@ def add_info_checkstring(table_name,id_column,mainID,search_column,search_string
 
 
 #### Create/update C2C database with CAS numbers from Excel files ####
-if READ_IN_DATA == True:
+if READ_IN_CPS == True:
     try:
         ### SQL SET-UP
         connection = sqlite3.connect(db_path)
@@ -687,7 +687,6 @@ try:
 
     df = pd.read_sql_query(final_query, connection)
 
-    print(df.columns.tolist())
     # Make sure everything is readable for Excel
     def sanitize_excel_cells(df):
         def fix_value(val):
