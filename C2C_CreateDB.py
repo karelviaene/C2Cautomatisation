@@ -364,46 +364,47 @@ def add_all_info_CPS_right(sheet, rowlabel, column_offsets, column_names, mainda
                         [newID, mainID] + [extracted_data[col] for col in all_columns]
                     )
 
-def add_info_checkstring(table_name,id_column,mainID,search_column,search_string,update_column,update_string):
-    """
-    Checks if `search_string` exists in `search_column` for a given `mainID`.
-    If found, updates `update_column` with `update_string`.
-
-    Parameters:
-        db_path (str): Path to the SQLite database file
-        table_name (str): Name of the table to query
-        id_column (str): Name of the ID column (e.g., "ID")
-        mainID (str): The ID value to look for
-        search_column (str): Column to search for the string
-        search_string (str): String to search for
-        update_column (str): Column to update
-        update_string (str): String to insert if match is found
-    """
-
-    # Get existing columns
-    cursor.execute(f"PRAGMA table_info({table_name})")
-    existing_columns = [col[1] for col in cursor.fetchall()]
-
-    # Add missing columns if needed
-    if update_column not in existing_columns:
-            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN '{update_column}' TEXT")
-
-    # Check if the string exists for the given ID
-    cursor.execute(f"""
-        SELECT 1 FROM {table_name}
-        WHERE {id_column} = ? AND {search_column} LIKE ?
-    """, (mainID, f"%{search_string}%"))
-
-    if cursor.fetchone():
-        # Update the target column
-        cursor.execute(f"""
-            UPDATE {table_name}
-            SET {update_column} = ?
-            WHERE {id_column} = ?
-        """, (update_string, mainID))
-
+# def add_info_checkstring(table_name,id_column,mainID,search_column,search_string,update_column,update_string):
+#     """
+#     Checks if `search_string` exists in `search_column` for a given `mainID`.
+#     If found, updates `update_column` with `update_string`.
+#
+#     Parameters:
+#         db_path (str): Path to the SQLite database file
+#         table_name (str): Name of the table to query
+#         id_column (str): Name of the ID column (e.g., "ID")
+#         mainID (str): The ID value to look for
+#         search_column (str): Column to search for the string
+#         search_string (str): String to search for
+#         update_column (str): Column to update
+#         update_string (str): String to insert if match is found
+#     """
+#
+#     # Get existing columns
+#     cursor.execute(f"PRAGMA table_info({table_name})")
+#     existing_columns = [col[1] for col in cursor.fetchall()]
+#
+#     # Add missing columns if needed
+#     if update_column not in existing_columns:
+#             cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN '{update_column}' TEXT")
+#
+#     # Check if the string exists for the given ID
+#     cursor.execute(f"""
+#         SELECT 1 FROM {table_name}
+#         WHERE {id_column} = ? AND {search_column} LIKE ?
+#     """, (mainID, f"%{search_string}%"))
+#
+#     if cursor.fetchone():
+#         # Update the target column
+#         cursor.execute(f"""
+#             UPDATE {table_name}
+#             SET {update_column} = ?
+#             WHERE {id_column} = ?
+#         """, (update_string, mainID))
+#
 
 #### Create/update C2C database with CAS numbers from Excel files ####
+
 if READ_IN_CPS == True:
     try:
         ### SQL SET-UP
