@@ -90,3 +90,154 @@ data = extract_notifiers_resources_wide(sheet)
 
 df = pd.DataFrame(data)
 print(df)
+
+
+### Test functions:
+
+# def add_info_CPS_right_until_empty_res(sheet, rowlabel, column_offsets, column_names, maindatabase, newdatabase, mainID):
+#     """
+#     Like add_info_CPS_one_cell_right, but starting from column_offsets[0] to the right,
+#     keeps reading consecutive cells until it finds the first empty cell.
+#     Column naming:
+#       - first value uses column_names[0] (base)
+#       - next values use column_names[1:], if present
+#       - beyond that, auto-name as base-1, base-2, ...
+#       - also captures the sheet's 'Resource' column value (if present on that row)
+#         into SQL column 'resource-<sanitized rowlabel>'.
+#     """
+#     if len(column_offsets) != len(column_names):
+#         raise ValueError("column_offsets and column_names must have the same length")
+#     if not column_offsets:
+#         return
+#
+#     # Quote identifiers for SQL safety
+#     def q(name: str) -> str:
+#         return f'"{name}"'
+#
+#     # Sanitize rowlabel for safe SQL column naming
+#     def sanitize_label(s: str) -> str:
+#         s = (s or "").strip().lower()
+#         s = s.replace(" ", "-")
+#         s = re.sub(r"[^a-z0-9_\-]", "", s)
+#         s = re.sub(r"-{2,}", "-", s)
+#         return s or "unnamed"
+#
+#     safe_rowlabel = sanitize_label(rowlabel)
+#     resource_colname = f"resource-{safe_rowlabel}"
+#
+#     # --- locate the cell containing rowlabel ---
+#     match_row_idx = None
+#     match_col_idx = None
+#     for row in sheet.iter_rows():
+#         for cell in row:
+#             if cell.value is not None and rowlabel.lower() in str(cell.value).lower():
+#                 match_row_idx = cell.row
+#                 # prefer numeric index (openpyxl)
+#                 match_col_idx = getattr(cell, "col_idx", cell.column)
+#                 break
+#         if match_row_idx is not None:
+#             break
+#
+#     if match_row_idx is None:
+#         return  # nothing to insert
+#
+#     # Find the column index for "Resource" (sheet header named 'Resource')
+#     resource_col = None
+#     for row in sheet.iter_rows():
+#         for cell in row:
+#             if cell.value and str(cell.value).strip().lower() == "resource":
+#                 resource_col = getattr(cell, "col_idx", cell.column)
+#                 break
+#         if resource_col:
+#             break
+#
+#     # Determine start offset and base name
+#     start_offset = column_offsets[0]
+#     base_name = column_names[0]
+#
+#     # --- read to the right until the first empty cell ---
+#     extracted_data = {}
+#     k = 0
+#     max_col = sheet.max_column
+#     while (match_col_idx + start_offset + k) <= max_col:
+#         target = sheet.cell(row=match_row_idx, column=match_col_idx + start_offset + k)
+#         tv = target.value
+#         # stop at first empty/blank
+#         if tv is None or (isinstance(tv, str) and tv.strip() == ""):
+#             break
+#
+#         # choose column name
+#         if k < len(column_names):
+#             col_name = column_names[k]
+#         else:
+#             col_name = f"{base_name}-{k - (len(column_names) - 1)}" if len(column_names) > 0 else f"col-{k}"
+#
+#         extracted_data[col_name] = tv
+#         k += 1
+#
+#     # Add the Resource value (may be None if column not found); always include the column
+#     extracted_data[resource_colname] = sheet.cell(row=match_row_idx, column=resource_col).value if resource_col else None
+#
+#     if not extracted_data:
+#         return  # nothing to insert
+#
+#     # --- ensure table exists and has needed columns ---
+#     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (newdatabase,))
+#     table_exists = cursor.fetchone()
+#
+#     # set of all columns we might write this time
+#     needed_columns = list(extracted_data.keys())
+#
+#     if not table_exists:
+#         cols_def = ", ".join([f"{q(col)} TEXT" for col in needed_columns])
+#         fk_clause = f", FOREIGN KEY (ref) REFERENCES {q(maindatabase)}(ID)" if newdatabase != maindatabase else ""
+#         cursor.execute(f'''
+#             CREATE TABLE {q(newdatabase)} (
+#                 ID INTEGER PRIMARY KEY AUTOINCREMENT,
+#                 ref TEXT
+#                 {"," if cols_def else ""} {cols_def}
+#                 {fk_clause}
+#             )
+#         ''')
+#     else:
+#         cursor.execute(f"PRAGMA table_info({q(newdatabase)})")
+#         existing_cols = [col[1] for col in cursor.fetchall()]
+#         if "ref" not in existing_cols and newdatabase != maindatabase:
+#             cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN ref TEXT")
+#         for col in needed_columns:
+#             if col not in existing_cols:
+#                 cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
+#
+#     # --- upsert (same keying rules as your working function) ---
+#     if newdatabase != maindatabase:
+#         cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
+#         exists = cursor.fetchone()
+#         if exists:
+#             update_clause = ", ".join([f"{q(col)} = ?" for col in needed_columns])
+#             cursor.execute(
+#                 f"UPDATE {q(newdatabase)} SET {update_clause} WHERE ref = ?",
+#                 [extracted_data[col] for col in needed_columns] + [mainID]
+#             )
+#         else:
+#             all_cols = ['ref'] + needed_columns
+#             placeholders = ", ".join(["?"] * len(all_cols))
+#             cursor.execute(
+#                 f"INSERT INTO {q(newdatabase)} ({', '.join(q(col) for col in all_cols)}) VALUES ({placeholders})",
+#                 [mainID] + [extracted_data[col] for col in needed_columns]
+#             )
+#     else:
+#         cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?", (mainID,))
+#         exists = cursor.fetchone()
+#         if exists:
+#             update_clause = ", ".join([f"{q(col)} = ?" for col in needed_columns])
+#             cursor.execute(
+#                 f"UPDATE {q(newdatabase)} SET {update_clause} WHERE ID = ?",
+#                 [extracted_data[col] for col in needed_columns] + [mainID]
+#             )
+#         else:
+#             all_cols = ['ID'] + needed_columns
+#             placeholders = ", ".join(["?"] * len(all_cols))
+#             cursor.execute(
+#                 f"INSERT INTO {q(newdatabase)} ({', '.join(q(col) for col in all_cols)}) VALUES ({placeholders})",
+#                 [mainID] + [extracted_data[col] for col in needed_columns]
+#             )
