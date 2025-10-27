@@ -364,230 +364,6 @@ def add_all_info_CPS_right(sheet, rowlabel, column_offsets, column_names, mainda
                         [newID, mainID] + [extracted_data[col] for col in all_columns]
                     )
 
-def add_info_CPS_one_cell_right(sheet, rowlabel, column_offsets, column_names, maindatabase, newdatabase, mainID):
-    """
-    Finds rows containing `rowlabel`, extracts specified columns to the right,
-    and inserts or updates the data in the SQLite database.
-
-    Parameters:
-        sheet: openpyxl worksheet
-        rowlabel: string to search for in any row
-        column_offsets: list of integers (e.g., [2, 3]) for columns to the right
-        column_names: list of strings for custom SQL column names
-        maindatabase: name of the main database (for foreign key reference)
-        newdatabase: name of the table to update
-        mainID: unique identifier for the row
-    """
-
-    if len(column_offsets) != len(column_names):
-        raise ValueError("column_offsets and column_names must have the same length")
-
-    # Quote identifiers for SQL safety
-    def q(name: str) -> str:
-        return f'"{name}"'
-
-
-    # Step 1: Find the row containing the rowlabel
-    extracted_data = {}
-    for row in sheet.iter_rows():
-        for cell in row:
-            if cell.value is not None and rowlabel.lower() in str(cell.value).lower():
-                row_idx = cell.row
-                col_idx = cell.column
-                for offset, col_name in zip(column_offsets, column_names):
-                    target_cell = sheet.cell(row=row_idx, column=col_idx + offset)
-                    extracted_data[col_name] = target_cell.value
-                break
-        if extracted_data:
-            break
-
-    if not extracted_data:
-        return  # nothing to insert
-
-    # Step 2: Check if table exists
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (newdatabase,))
-    table_exists = cursor.fetchone()
-
-    if not table_exists:
-        # Create table with ID, ref, and extracted columns
-        cols_def = ", ".join([f"{q(col)} TEXT" for col in column_names])
-        fk_clause = f", FOREIGN KEY (ref) REFERENCES {q(maindatabase)}(ID)" if newdatabase != maindatabase else ""
-        cursor.execute(f'''
-            CREATE TABLE {q(newdatabase)} (
-                ID INTEGER PRIMARY KEY AUTOINCREMENT,
-                ref TEXT
-                {"," if cols_def else ""} {cols_def}
-                {fk_clause}
-            )
-        ''')
-    else:
-        # Add missing columns
-        cursor.execute(f"PRAGMA table_info({q(newdatabase)})")
-        existing_cols = [col[1] for col in cursor.fetchall()]
-        if "ref" not in existing_cols and newdatabase != maindatabase:
-            cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN ref TEXT")
-        for col in column_names:
-            if col not in existing_cols:
-                cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
-
-    # Step 3: Insert or update
-    if newdatabase != maindatabase:
-        cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
-        exists = cursor.fetchone()
-        if exists:
-            update_clause = ", ".join([f"{q(col)} = ?" for col in column_names])
-            cursor.execute(
-                f"UPDATE {q(newdatabase)} SET {update_clause} WHERE ref = ?",
-                [extracted_data[col] for col in column_names] + [mainID]
-            )
-        else:
-            all_cols = ['ref'] + column_names
-            placeholders = ", ".join(["?"] * len(all_cols))
-            cursor.execute(
-                f"INSERT INTO {q(newdatabase)} ({', '.join(q(col) for col in all_cols)}) VALUES ({placeholders})",
-                [mainID] + [extracted_data[col] for col in column_names]
-            )
-
-    else:  # when newdatabase == maindatabase
-        cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?", (mainID,))
-        exists = cursor.fetchone()
-        if exists:
-            update_clause = ", ".join([f"{q(col)} = ?" for col in column_names])
-            cursor.execute(
-                f"UPDATE {q(newdatabase)} SET {update_clause} WHERE ID = ?",
-                [extracted_data[col] for col in column_names] + [mainID]
-            )
-        else:
-            all_cols = ['ID'] + column_names
-            placeholders = ", ".join(["?"] * len(all_cols))
-            cursor.execute(
-                f"INSERT INTO {q(newdatabase)} ({', '.join(q(col) for col in all_cols)}) VALUES ({placeholders})",
-                [mainID] + [extracted_data[col] for col in column_names]
-            )
-
-def add_info_CPS_right_until_empty(sheet, rowlabel, column_offsets, column_names, maindatabase, newdatabase, mainID):
-    """
-    Like add_info_CPS_one_cell_right, but starting from column_offsets[0] to the right,
-    keeps reading consecutive cells until it finds the first empty cell.
-    Column naming:
-      - first value uses column_names[0] (base)
-      - next values use column_names[1:], if present
-      - beyond that, auto-name as base-1, base-2, ...
-    """
-    if len(column_offsets) != len(column_names):
-        raise ValueError("column_offsets and column_names must have the same length")
-    if not column_offsets:
-        return
-
-    # Quote identifiers for SQL safety
-    def q(name: str) -> str:
-        return f'"{name}"'
-
-    # --- locate the cell containing rowlabel ---
-    match_row_idx = None
-    match_col_idx = None
-    for row in sheet.iter_rows():
-        for cell in row:
-            if cell.value is not None and rowlabel.lower() in str(cell.value).lower():
-                match_row_idx = cell.row
-                # prefer numeric index (openpyxl)
-                match_col_idx = getattr(cell, "col_idx", cell.column)
-                break
-        if match_row_idx is not None:
-            break
-
-    if match_row_idx is None:
-        return  # nothing to insert
-
-    # Determine start offset and base name
-    start_offset = column_offsets[0]
-    base_name = column_names[0]
-
-    # --- read to the right until the first empty cell ---
-    extracted_data = {}
-    k = 0
-    max_col = sheet.max_column
-    while (match_col_idx + start_offset + k) <= max_col:
-        target = sheet.cell(row=match_row_idx, column=match_col_idx + start_offset + k)
-        tv = target.value
-        # stop at first empty/blank
-        if tv is None or (isinstance(tv, str) and tv.strip() == ""):
-            break
-
-        # choose column name
-        if k < len(column_names):
-            col_name = column_names[k]
-        else:
-            col_name = f"{base_name}-{k - (len(column_names) - 1)}" if len(column_names) > 0 else f"col-{k}"
-
-        extracted_data[col_name] = tv
-        k += 1
-
-    if not extracted_data:
-        return  # nothing to insert
-
-    # --- ensure table exists and has needed columns ---
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (newdatabase,))
-    table_exists = cursor.fetchone()
-
-    # set of all columns we might write this time
-    needed_columns = list(extracted_data.keys())
-
-    if not table_exists:
-        cols_def = ", ".join([f"{q(col)} TEXT" for col in needed_columns])
-        fk_clause = f", FOREIGN KEY (ref) REFERENCES {q(maindatabase)}(ID)" if newdatabase != maindatabase else ""
-        cursor.execute(f'''
-            CREATE TABLE {q(newdatabase)} (
-                ID INTEGER PRIMARY KEY AUTOINCREMENT,
-                ref TEXT
-                {"," if cols_def else ""} {cols_def}
-                {fk_clause}
-            )
-        ''')
-    else:
-        cursor.execute(f"PRAGMA table_info({q(newdatabase)})")
-        existing_cols = [col[1] for col in cursor.fetchall()]
-        if "ref" not in existing_cols and newdatabase != maindatabase:
-            cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN ref TEXT")
-        for col in needed_columns:
-            if col not in existing_cols:
-                cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
-
-    # --- upsert (same keying rules as your working function) ---
-    if newdatabase != maindatabase:
-        cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
-        exists = cursor.fetchone()
-        if exists:
-            update_clause = ", ".join([f"{q(col)} = ?" for col in needed_columns])
-            cursor.execute(
-                f"UPDATE {q(newdatabase)} SET {update_clause} WHERE ref = ?",
-                [extracted_data[col] for col in needed_columns] + [mainID]
-            )
-        else:
-            all_cols = ['ref'] + needed_columns
-            placeholders = ", ".join(["?"] * len(all_cols))
-            cursor.execute(
-                f"INSERT INTO {q(newdatabase)} ({', '.join(q(col) for col in all_cols)}) VALUES ({placeholders})",
-                [mainID] + [extracted_data[col] for col in needed_columns]
-            )
-    else:
-        cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?", (mainID,))
-        exists = cursor.fetchone()
-        if exists:
-            update_clause = ", ".join([f"{q(col)} = ?" for col in needed_columns])
-            cursor.execute(
-                f"UPDATE {q(newdatabase)} SET {update_clause} WHERE ID = ?",
-                [extracted_data[col] for col in needed_columns] + [mainID]
-            )
-        else:
-            all_cols = ['ID'] + needed_columns
-            placeholders = ", ".join(["?"] * len(all_cols))
-            cursor.execute(
-                f"INSERT INTO {q(newdatabase)} ({', '.join(q(col) for col in all_cols)}) VALUES ({placeholders})",
-                [mainID] + [extracted_data[col] for col in needed_columns]
-            )
-
-
 # def add_info_checkstring(table_name,id_column,mainID,search_column,search_string,update_column,update_string):
 #     """
 #     Checks if `search_string` exists in `search_column` for a given `mainID`.
@@ -647,8 +423,8 @@ if READ_IN_CPS == True:
         ''')
 
         # Regex pattern to extract CAS number from filename
-        file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
-        cas_pattern = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
+        file_pattern = re.compile(r'CAS (.*?)\.xlsx')
+        cas_pattern = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})(.*?)\.xlsx', re.IGNORECASE)
         cas_pattern_strict = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})', re.IGNORECASE)
         ec_pattern = re.compile(r'EC (\d{2,7}[-‐‑–—]\d{3}[-‐‑–—]\d{1})')
 
@@ -694,33 +470,30 @@ if READ_IN_CPS == True:
                         CPS_wb_obj = openpyxl.load_workbook(full_path)
                         CPSsheet = CPS_wb_obj.active
 
-                        # Add general info
-                        for g_info in ["Chemical name","Common name","CAS number", "EC number", "Linked CAS Read across", "Linked CAS Monomers", "Linked CAS Degradation Products"]:
-                            add_info_CPS_below(CPSsheet, g_info,"C2C_DATABASE","GENERALINFO",inv_number )
+                        # CHEMICAL NAME
+                        add_info_CPS_below(CPSsheet, ["Chemical name"],"C2C_DATABASE","CHEMICALNAMES",inv_number)
 
                         # ASSESSOR
                         add_info_CPS_below(CPSsheet, {"Name assessor":"Name assessor","Date created/updated" : "Date assessed"},"C2C_DATABASE","ASSESSORS",inv_number)
 
-                        # # # Molecular formula / Photo - TO BE ADDED LATER
-                        #add_info_CPS_below(CPSsheet, ["Molecular Formula"], "C2C_DATABASE", "C2C_DATABASE", inv_number)
+                        # CHECKED status
+                        add_info_CPS_below(CPSsheet, ["Checked"],"C2C_DATABASE","C2C_DATABASE",inv_number)
 
                         # Add various info
-                        for info in ["Organohalogens","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]:
-                               add_info_CPS_one_cell_right(CPSsheet,info,[2],[info],
-                                   "C2C_DATABASE","CHEMICALCLASS",inv_number)
-
-                        # Adding other info
-                        for o_info in ["Molecular weight","Boiling point", "Log kow (octanol-water partition coefficient)", "Vapor pressure", "Water solubility", "SMILES"]:
-                               add_info_CPS_right_until_empty(CPSsheet,o_info,[2],[o_info],
-                                   "C2C_DATABASE","OTHERINFO",inv_number)
-
-
-
+                        for info in ["Common name","Organohalogens","Toxic metal", "Colourant", "Geological", "Biological", "Polymer"]:
+                            add_info_CPS_right(CPSsheet,info,[2],[info],
+                                "C2C_DATABASE","C2C_DATABASE",inv_number)
+                        # # Add SMILES
+                        for info in ["SMILES"]:
+                            add_info_CPS_right(CPSsheet,info,[1],[info],
+                                "C2C_DATABASE","C2C_DATABASE",inv_number)
+                        # # # Molecular formula
+                        add_info_CPS_below(CPSsheet, ["Molecular Formula"], "C2C_DATABASE", "C2C_DATABASE", inv_number)
 
                         # CARCINOGENICITY
                         for carc_type in ["Carcinogenicity Classified CLP", "Carcinogenicity Classified MAK","Carcinogenicity Classified IARC",
-                            "Carcinogenicity Classified TLV", "Carcinogenicity experimental evidence", "Carcinogenicity Comments"]:
-                            add_info_CPS_right_until_empty(CPSsheet,carc_type,[1],[carc_type],
+                            "Carcinogenicity Classified TLV", "Carcinogenicity Comments"]:
+                            add_info_CPS_right(CPSsheet,carc_type,[1],[carc_type],
                                 "C2C_DATABASE","CARCINOGENICITY",inv_number)
 
                         # ED
