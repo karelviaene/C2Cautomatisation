@@ -724,9 +724,13 @@ def add_info_CPS_right_until_empty(sheet, rowlabel, column_offsets, column_names
       - first value uses column_names[0] (base)
       - next values use column_names[1:], if present
       - beyond that, auto-name as base-1, base-2, ...
-      - If include_resource=True, also captures the sheet's 'Resource' column value (if present on that row)
+
+    Optional behavior (when True):
+      - If include_resource=True, captures the sheet's 'Resource' column value (if present and not empty)
         into SQL column 'resource-<sanitized rowlabel>'.
+      - If no 'Resource' column exists or the cell is empty, skips creating that column.
     """
+
     if len(column_offsets) != len(column_names):
         raise ValueError("column_offsets and column_names must have the same length")
     if not column_offsets:
@@ -754,7 +758,6 @@ def add_info_CPS_right_until_empty(sheet, rowlabel, column_offsets, column_names
         for cell in row:
             if cell.value is not None and rowlabel.lower() in str(cell.value).lower():
                 match_row_idx = cell.row
-                # prefer numeric index (openpyxl)
                 match_col_idx = getattr(cell, "col_idx", cell.column)
                 break
         if match_row_idx is not None:
@@ -798,11 +801,11 @@ def add_info_CPS_right_until_empty(sheet, rowlabel, column_offsets, column_names
         extracted_data[col_name] = tv
         k += 1
 
-    # Optionally add the Resource value
-    if include_resource:
-        extracted_data[resource_colname] = (
-            sheet.cell(row=match_row_idx, column=resource_col).value if resource_col else None
-        )
+    # Optionally add the Resource value, but only if it's not empty
+    if include_resource and resource_col:
+        resource_value = sheet.cell(row=match_row_idx, column=resource_col).value
+        if resource_value is not None and (not isinstance(resource_value, str) or resource_value.strip() != ""):
+            extracted_data[resource_colname] = resource_value
 
     if not extracted_data:
         return  # nothing to insert
@@ -833,7 +836,7 @@ def add_info_CPS_right_until_empty(sheet, rowlabel, column_offsets, column_names
             if col not in existing_cols:
                 cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
 
-    # --- upsert logic (same keying as your previous working function) ---
+    # --- upsert logic (same keying as your working function) ---
     if newdatabase != maindatabase:
         cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
         exists = cursor.fetchone()
@@ -1006,13 +1009,20 @@ if READ_IN_CPS == True:
                                 "C2C_DATABASE","ENDOCRINE",inv_number)
 
                         # MUTAGENICITY/GENOTOXICITY
+                        # General information
                         for muta_type in ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]:
-                            add_all_info_CPS_right(CPSsheet,muta_type,[1],[muta_type],
+                            add_info_CPS_right_until_empty(CPSsheet,muta_type,[1],[muta_type],
                                 "C2C_DATABASE","MUTAGENICITY",inv_number)
-                        # For the strings with multiple possible hits
-                        for muta_type in ["OECD 471", "OECD 473", "OECD 474", "OECD 475", "OECD 476", "OECD 478",
-                            "OECD 483", "OECD 485", "OECD 486", "OECD 487", "OECD 488", "OECD 489", "OECD 490", "No data"]:
-                            add_all_info_CPS_right(CPSsheet,muta_type,[3],[muta_type],
+                        # Point mutations
+
+                        for muta_type in ["OECD 471", "OECD 476",
+                             "OECD 486", "OECD 488", "OECD 489", "OECD 490"]:
+                            add_info_CPS_right_until_empty(CPSsheet,muta_type,[3],[muta_type],
+                                "C2C_DATABASE","MUTAGENICITY",inv_number)
+                        # Chromosomal damaging
+                        for muta_type in ["OECD 473", "OECD 474", "OECD 475", "OECD 478",
+                            "OECD 483", "OECD 485", "OECD 486", "OECD 487", "OECD 488", "OECD 489", "OECD 490"]:
+                            add_info_CPS_right_until_empty(CPSsheet,muta_type,[3],[muta_type],
                                 "C2C_DATABASE","MUTAGENICITY",inv_number)
 
                         # REPRODUCTIVE TOXICITY
@@ -1024,64 +1034,69 @@ if READ_IN_CPS == True:
                         # DEVELOPMENTAL TOXICITY
                         for devo_type in ["Developmental Classified CLP", "Developmental Classified MAK", "Oral NOAEL =",
                                            "Inhalation NOAEL =", "Developmental Toxicity Comments"]:
-                            add_info_CPS_right(CPSsheet,devo_type,[1],[devo_type],
+                            add_info_CPS_right_until_empty(CPSsheet,devo_type,[1],[devo_type],
                                 "C2C_DATABASE","DEVELOPTOX",inv_number)
 
+                        # NEUROTOXICITY
+                        for neuro_type in ["Neurotox Classified CLP", "Neurotox on a list", "Neurotox scientific evidence?",
+                            "Neurotox chronic LOAEL", "Neurtox STOT LOAEL", "Neurotox Comments"]:
+                            add_info_CPS_right_until_empty(CPSsheet,neuro_type,[1],[neuro_type],
+                                "C2C_DATABASE","NEUROTOX",inv_number)
+
                         # ORAL TOXICITY
-                        for oral_type in ["Oral toxicity Acute Tox classified", "Oral toxicity STOT classified", "Oral Acute: LD50 =",
+                        for oral_type in ["Oral toxicity Acute Tox classified","Oral toxicity Asp Tox classified", "Oral toxicity STOT classified", "Oral Acute: LD50 =",
                             "Oral Chronic: LOAEL =", "Oral Toxicity Comments"]:
-                            add_info_CPS_right(CPSsheet,oral_type,[1],[oral_type],
+                            add_info_CPS_right_until_empty(CPSsheet,oral_type,[1],[oral_type],
                                 "C2C_DATABASE","ORALTOX",inv_number)
 
                         # INHALATIVE TOXICITY
                         for inhal_type in ["Inhalative toxicity Acute Tox classification", "Inhalative toxicity STOT classified",
                             "Acute: LC50 (gas) =", "Acute: LC50 (vapor) =", "Acute: LC50 (dust/mist/aerosol) =", "Chronic: LOAEL (gas) =",
                             "Chronic: LOAEL (vapor) =", "Chronic: LOAEL (dust/mist/aerosol) =", "Boiling Point", "Inhalative Toxicity Comments"]:
-                            add_info_CPS_right(CPSsheet,inhal_type,[1],[inhal_type],
+                            add_info_CPS_right_until_empty(CPSsheet,inhal_type,[1],[inhal_type],
                                 "C2C_DATABASE","INHALTOX",inv_number)
+                        #   print the values to check what it was doing
 
                         # DERMAL TOXICITY
                         for dermal_type in ["Dermal toxicity Acute Tox classified", "Dermal toxicity STOT classified",
                                             "Dermal Acute: LD50 =", "Dermal Chronic: LOAEL =", "Dermal Toxicity Comments"]:
-                            add_info_CPS_right(CPSsheet,dermal_type,[1],[dermal_type],
+                            add_info_CPS_right_until_empty(CPSsheet,dermal_type,[1],[dermal_type],
                                 "C2C_DATABASE","DERMALTOX",inv_number)
-
-                        # NEUROTOXICITY
-                        for neuro_type in ["Neurotox Classified CLP", "Neurotox on a list", "Neurotox scientific evidence?",
-                            "Neurotox chronic LOAEL", "Neurtox STOT LOAEL", "Neurotox Comments"]:
-                            add_info_CPS_right(CPSsheet,neuro_type,[1],[neuro_type],
-                                "C2C_DATABASE","NEUROTOX",inv_number)
 
                         # SKIN/EYE IRRITATION/CORROSION
                         for irrit_type in ["Skin irritation classification", "Skin testing: conclusion", "Eye irritation classification",
-                            "Eye testing conclusion", "Respiratory irritation classification", "Respiratory testing conclusion"]:
-                            add_info_CPS_right(CPSsheet,irrit_type,[1],[irrit_type],
+                            "Eye testing conclusion", "Respiratory irritation classification", "Respiratory testing conclusion", "pH", "Corrosion/irritation comments"]:
+                            add_info_CPS_right_until_empty(CPSsheet,irrit_type,[1],[irrit_type],
                                 "C2C_DATABASE","IRRITCOR",inv_number)
 
                         # SENSITISATION
-                        for sens_type in ["Skin sensitization classification", "Skin sensitization testing conclusion",
-                            "Skin sensitization classified MAK", "Inhalation sensitization classification",
-                            "Inhalation sensitization testing conclusion", "Inhalation sensitization classified MAK"]:
-                            add_info_CPS_right(CPSsheet,sens_type,[1],[sens_type],
+                        for sens_type in ["Skin sensitization CLP classification", "Skin sensitization MAK classification",
+                            "Skin sensitization testing conclusion", "Respiratory sensitization CLP classification",
+                            "Respiratory sensitization MAK classification", "Respiratory sensitization testing conclusion", "Sensitization comments"]:
+                            add_info_CPS_right_until_empty(CPSsheet,sens_type,[1],[sens_type],
                                 "C2C_DATABASE","SENSITISATION",inv_number)
 
+                        # ADD Specific concentration limits
+
+                        # CODE HERE
+
+
                         # AQUATIC TOXICITY
-                            # VERTEBRATE
-                        for fish_type in ["Fish toxicity Acute: LC50 (96h) =", "Fish toxicity Chronic: NOEC ="]:
-                            add_info_CPS_right(CPSsheet,fish_type,[1],[fish_type],
+                        for aqtox_type in ["Aquatic toxicity Acute Tox classified", "Aquatic toxicity Chronic Tox classified","Water solubility", "M factor"]:
+                            add_info_CPS_right_until_empty(CPSsheet, aqtox_type, [1], [aqtox_type],
+                                                "C2C_DATABASE", "AQUATOX", inv_number)
+                            # VERTEBRATE FISH
+                        for fish_type in ["Fish toxicity Acute: LC50 (96h) =", "Fish toxicity Chronic: NOEC =", "Fish toxicity Acute QSAR: LC50 =", "Fish toxicity Chronic QSAR: NOEC ="]:
+                            add_info_CPS_right_until_empty(CPSsheet,fish_type,[1],[fish_type],
                                 "C2C_DATABASE","FISHTOX",inv_number)
                             # INVERTEBRATE
-                        for inv_type in ["Invertebrate toxicity Acute: L(E)C50 (48h) =", "Invertebrae toxicity Chronic: NOEC ="]:
-                            add_info_CPS_right(CPSsheet, inv_type, [1], [inv_type],
+                        for inv_type in ["Invertebrate toxicity Acute: L(E)C50 (48h) =", "Invertebrae toxicity Chronic: NOEC =", "Invertebrae toxicity Acute QSAR: LC50 =", "Invertebrae toxicity Chronic QSAR: NOEC ="]:
+                            add_info_CPS_right_until_empty(CPSsheet, inv_type, [1], [inv_type],
                                                "C2C_DATABASE", "INVTOX", inv_number)
                             # ALGAE
-                        for algae_type in ["Algae toxicity Acute: L(E)C50 (72/96h) =", "Algae toxicity Chronic: NOEC ="]:
-                            add_info_CPS_right(CPSsheet, algae_type, [1], [algae_type],
+                        for algae_type in ["Algae toxicity Acute: L(E)C50 (72/96h) =", "Algae toxicity Chronic: NOEC =", "Algae toxicity Acute QSAR: LC50 =", "Algae toxicity Chronic QSAR: NOEC ="]:
+                            add_info_CPS_right_until_empty(CPSsheet, algae_type, [1], [algae_type],
                                                "C2C_DATABASE", "ALGAETOX", inv_number)
-                            # General aquatic tox
-                            for aqtox_type in ["Aquatic toxicity CLP classification","Water solubility", "M factor: "]:
-                                add_info_CPS_right(CPSsheet, aqtox_type, [1], [aqtox_type],
-                                                   "C2C_DATABASE", "AQUATOX", inv_number)
 
                         # TERRESTRIAL TOXICITY
                         for tertox_type in ["Terrestial toxicity CLP classification"]:
