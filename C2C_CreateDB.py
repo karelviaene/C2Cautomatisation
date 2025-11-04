@@ -1015,25 +1015,21 @@ if READ_IN_CPS == True:
                                 "C2C_DATABASE","MUTAGENICITY",inv_number)
                         # Point mutations
 
-                        for muta_type in ["OECD 471", "OECD 476",
-                             "OECD 486", "OECD 488", "OECD 489", "OECD 490"]:
-                            add_info_CPS_right_until_empty(CPSsheet,muta_type,[3],[muta_type],
-                                "C2C_DATABASE","MUTAGENICITY",inv_number)
-                        # Chromosomal damaging
-                        for muta_type in ["OECD 473", "OECD 474", "OECD 475", "OECD 478",
+                        # For the strings with multiple possible hits
+                        for muta_type in ["OECD 471", "OECD 473", "OECD 474", "OECD 475", "OECD 476", "OECD 478",
                             "OECD 483", "OECD 485", "OECD 486", "OECD 487", "OECD 488", "OECD 489", "OECD 490"]:
                             add_info_CPS_right_until_empty(CPSsheet,muta_type,[3],[muta_type],
                                 "C2C_DATABASE","MUTAGENICITY",inv_number)
 
                         # REPRODUCTIVE TOXICITY
-                        for repro_type in ["Reprotox Classified CLP", "Reprotox Classified MAK", "Oral NOAEL =",
-                                           "Inhalation NOAEL =", "Reproductive Toxicity Comments"]:
+                        for repro_type in ["Reprotox Classified CLP", "Reprotox Classified MAK", "Reprotox Oral NOAEL =",
+                                           "Reprotox Inhalation NOAEL =", "Reproductive Toxicity Comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,repro_type,[1],[repro_type],
                                 "C2C_DATABASE","REPROTOX",inv_number)
 
                         # DEVELOPMENTAL TOXICITY
-                        for devo_type in ["Developmental Classified CLP", "Developmental Classified MAK", "Oral NOAEL =",
-                                           "Inhalation NOAEL =", "Developmental Toxicity Comments"]:
+                        for devo_type in ["Developmental Classified CLP", "Developmental Classified MAK", "Developmental Oral NOAEL =",
+                                           "Developmental Inhalation NOAEL =", "Developmental Toxicity Comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,devo_type,[1],[devo_type],
                                 "C2C_DATABASE","DEVELOPTOX",inv_number)
 
@@ -1051,8 +1047,8 @@ if READ_IN_CPS == True:
 
                         # INHALATIVE TOXICITY
                         for inhal_type in ["Inhalative toxicity Acute Tox classification", "Inhalative toxicity STOT classified",
-                            "Acute: LC50 (gas) =", "Acute: LC50 (vapor) =", "Acute: LC50 (dust/mist/aerosol) =", "Chronic: LOAEL (gas) =",
-                            "Chronic: LOAEL (vapor) =", "Chronic: LOAEL (dust/mist/aerosol) =", "Boiling Point", "Inhalative Toxicity Comments"]:
+                            "Inhalative toxicity Acute: LC50 (gas) =", "Inhalative toxicity Acute: LC50 (vapor) =", "Inhalative toxicity Acute: LC50 (dust/mist/aerosol) =", "Inhalative toxicity Chronic: LOAEL (gas) =",
+                            "Inhalative toxicity Chronic: LOAEL (vapor) =", "Inhalative toxicity Chronic: LOAEL (dust/mist/aerosol) =", "Boiling Point", "Inhalative Toxicity Comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,inhal_type,[1],[inhal_type],
                                 "C2C_DATABASE","INHALTOX",inv_number)
                         #   print the values to check what it was doing
@@ -1080,6 +1076,8 @@ if READ_IN_CPS == True:
 
                         # CODE HERE
 
+                        #  OTHER CRITERIA
+                        #
 
                         # AQUATIC TOXICITY
                         for aqtox_type in ["Aquatic toxicity Acute Tox classified", "Aquatic toxicity Chronic Tox classified","Water solubility", "M factor"]:
@@ -1099,31 +1097,32 @@ if READ_IN_CPS == True:
                                                "C2C_DATABASE", "ALGAETOX", inv_number)
 
                         # TERRESTRIAL TOXICITY
-                        for tertox_type in ["Terrestial toxicity CLP classification"]:
-                            add_info_CPS_right(CPSsheet, tertox_type, [1], [tertox_type],
+                        for tertox_type in ["Terrestial toxicity CLP classification", "Terrestial toxicity Acute (Chicken): LD50=", "Terrestial toxicity Acute (Duck): LD50=",
+                                            "Terrestial toxicity Acute (Worm): EC50=", "Terrestial toxicity Chronic (Chicken): NOEC=", "Terrestial toxicity Chronic (Duck): NOEC=",
+                                            "Terrestial toxicity Chronic (Worm): NOEC=", "Terrestial toxicity Comments"]:
+                            add_info_CPS_right_until_empty(CPSsheet, tertox_type, [1], [tertox_type],
                                                "C2C_DATABASE", "TERTOX", inv_number)
+                        # Other species toxicity
+                        for spec_tox_type in ["Any other CLP species classification"]:
+                            add_info_CPS_right_until_empty(CPSsheet, spec_tox_type, [1], [spec_tox_type],
+                                               "C2C_DATABASE", "SPECTOX", inv_number)
 
                         # PERSISTENCE
-                        for pers_type in ["% DOC biodegradation after 28 days", "% ThOD biodegradation after 28 days",
-                            "Degradation halflife time in air", "Degradation halflife time in water", "soil or sediment", "QSAR prediction"]:
-                            add_info_CPS_right(CPSsheet,pers_type,[1],[pers_type],
+                        for pers_type in ["OECD 301: % DOC biodegradation after 28 days", "OECD 301: % ThOD biodegradation after 28 days",
+                            "OECD 302 or OECD 304A: % inherent biodegradation: ", "QSAR prediction", "Half-life (T1/2) Air", "Half-life (T1/2) Water", "Half-life (T1/2) Soil or sediment", "Persistence comments"]:
+                            add_info_CPS_right_until_empty(CPSsheet,pers_type,[1],[pers_type],
                                 "C2C_DATABASE","PERSISTENCE",inv_number)
 
                         # BIOACCUMULATION
-                        for bioac_type in ["BCF/BAF (QSAR)", "BCF/BAF (experimental)", "Log kow", "Molecular weight"]:
-                            add_info_CPS_right(CPSsheet,bioac_type,[1],[bioac_type],
+                        for bioac_type in ["BCF/BAF (experimental)", "BCF/BAF (QSAR)", "Bioaccumulation comments"]:
+                            add_info_CPS_right_until_empty(CPSsheet,bioac_type,[1],[bioac_type],
                                 "C2C_DATABASE","BIOACCUMULATION",inv_number)
 
                         # CLIMATIC RELEVANCE
-                        for clima_type in ["Climatic relevance/ozone depletion potential"]:
-                            add_info_CPS_right(CPSsheet,clima_type,[2],[clima_type],
-                                "C2C_DATABASE","CLIMATICREL",inv_number)
+                        for clima_type in ["100 year GWP", "ODP", "Climatic relevance comments"]:
+                            add_info_CPS_right_until_empty(CPSsheet,clima_type,[1],[clima_type],
+                                "C2C_DATABASE","CLIMATICRELEVANCE",inv_number)
 
-                        # PHYSICAL PROPERTIES
-                        for physchem_type in ["VOC designation", "Molecular weight", "Boiling point", "Log kow (octanol-water partition coefficient)",
-                            "Vapor pressure", "Water solubility"]:
-                            add_info_CPS_right(CPSsheet,physchem_type,[1],[physchem_type],
-                                "C2C_DATABASE","PHYSCHEM",inv_number)
 
         connection.commit()
         print("SQL updated")
