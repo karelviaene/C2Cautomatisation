@@ -4,10 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="saving">
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="just as a back up">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Functions-tests.py" beforeDir="false" afterPath="$PROJECT_DIR$/Functions-tests.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_CreateDB_old.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB_old.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -96,12 +96,39 @@
       <option name="project" value="LOCAL" />
       <updated>1761564512755</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="I added a function add_info_CPS_right_until_empty that makes the resources for all the values. Only thing is that for now it will create this column even if no resource is present">
+      <option name="closed" value="true" />
+      <created>1761569692006</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1761569692006</updated>
+    </task>
+    <task id="LOCAL-00003" summary="The new function, and changed for loops to extract data">
+      <option name="closed" value="true" />
+      <created>1762168964228</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1762168964228</updated>
+    </task>
+    <task id="LOCAL-00004" summary="just as a back up">
+      <option name="closed" value="true" />
+      <created>1762168980246</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1762168980246</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="saving" />
-    <option name="LAST_COMMIT_MESSAGE" value="saving" />
+    <MESSAGE value="I added a function add_info_CPS_right_until_empty that makes the resources for all the values. Only thing is that for now it will create this column even if no resource is present" />
+    <MESSAGE value="The new function, and changed for loops to extract data" />
+    <MESSAGE value="just as a back up" />
+    <option name="LAST_COMMIT_MESSAGE" value="just as a back up" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

@@ -507,7 +507,7 @@ if READ_IN_CPS == True:
                                 "C2C_DATABASE","MUTAGENICITY",inv_number)
                         # For the strings with multiple possible hits
                         for muta_type in ["OECD 471", "OECD 473", "OECD 474", "OECD 475", "OECD 476", "OECD 478",
-                            "OECD 483", "OECD 485", "OECD 486", "OECD 487", "OECD 488", "OECD 489", "OECD 490", "No data"]:
+                            "OECD 483", "OECD 485", "OECD 486", "OECD 487", "OECD 488", "OECD 489", "OECD 490", "#No data"]:
                             add_all_info_CPS_right(CPSsheet,muta_type,[3],[muta_type],
                                 "C2C_DATABASE","MUTAGENICITY",inv_number)
 
