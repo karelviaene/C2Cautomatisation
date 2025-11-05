@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="All criteria are in except the Specific Concentration Limits and Other Comments">
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="All functions apart from SCL">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
     </list>
@@ -23,7 +23,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="main" />
+        <entry key="$PROJECT_DIR$" value="julia-SCL-function" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -68,7 +68,7 @@
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "git-widget-placeholder": "julia",
+    "git-widget-placeholder": "julia-SCL-function",
     "settings.editor.selected.configurable": "preferences.pluginManager"
   }
 }]]></component>
@@ -135,7 +135,23 @@
       <option name="project" value="LOCAL" />
       <updated>1762273411863</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="All functions apart from SCL">
+      <option name="closed" value="true" />
+      <created>1762344768740</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1762344768740</updated>
+    </task>
+    <task id="LOCAL-00008" summary="All functions apart from SCL">
+      <option name="closed" value="true" />
+      <created>1762344780193</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1762344780193</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -144,7 +160,8 @@
     <MESSAGE value="The new function, and changed for loops to extract data" />
     <MESSAGE value="just as a back up" />
     <MESSAGE value="All criteria are in except the Specific Concentration Limits and Other Comments" />
-    <option name="LAST_COMMIT_MESSAGE" value="All criteria are in except the Specific Concentration Limits and Other Comments" />
+    <MESSAGE value="All functions apart from SCL" />
+    <option name="LAST_COMMIT_MESSAGE" value="All functions apart from SCL" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
