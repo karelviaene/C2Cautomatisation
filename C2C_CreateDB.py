@@ -1077,7 +1077,9 @@ if READ_IN_CPS == True:
                         # CODE HERE
 
                         #  OTHER CRITERIA
-                        #
+                        for other_criteria in ["Other comments"]:
+                            add_info_CPS_right_until_empty(CPSsheet, other_criteria, [1], [other_criteria],
+                                               "C2C_DATABASE", "OCRIT", inv_number)
 
                         # AQUATIC TOXICITY
                         for aqtox_type in ["Aquatic toxicity Acute Tox classified", "Aquatic toxicity Chronic Tox classified","Water solubility", "M factor"]:
@@ -1109,7 +1111,7 @@ if READ_IN_CPS == True:
 
                         # PERSISTENCE
                         for pers_type in ["OECD 301: % DOC biodegradation after 28 days", "OECD 301: % ThOD biodegradation after 28 days",
-                            "OECD 302 or OECD 304A: % inherent biodegradation: ", "QSAR prediction", "Half-life (T1/2) Air", "Half-life (T1/2) Water", "Half-life (T1/2) Soil or sediment", "Persistence comments"]:
+                            "OECD 302 or OECD 304A: % inherent biodegradation: ", "OECD 311","QSAR prediction", "Half-life (T1/2) Air", "Half-life (T1/2) Water", "Half-life (T1/2) Soil or sediment", "Persistence comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,pers_type,[1],[pers_type],
                                 "C2C_DATABASE","PERSISTENCE",inv_number)
 
@@ -1119,9 +1121,15 @@ if READ_IN_CPS == True:
                                 "C2C_DATABASE","BIOACCUMULATION",inv_number)
 
                         # CLIMATIC RELEVANCE
-                        for clima_type in ["100 year GWP", "ODP", "Climatic relevance comments"]:
+                        for clima_type in ["Climatic listed?", "100 year GWP", "ODP", "Climatic relevance comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,clima_type,[1],[clima_type],
                                 "C2C_DATABASE","CLIMATICRELEVANCE",inv_number)
+
+                        #  ADDITIONAL SOURCES
+                        for add_sources in ["Additional sources"]:
+                            add_info_CPS_right_until_empty(CPSsheet, add_sources, [1], [add_sources],
+                                               "C2C_DATABASE", "ADDSOURCE", inv_number)
+
 
 
         connection.commit()
