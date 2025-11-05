@@ -871,6 +871,186 @@ def add_info_CPS_right_until_empty(sheet, rowlabel, column_offsets, column_names
             )
 
 
+def collect_right_values_for_label_block(sheet, rowlabel: str):
+    """
+    Finds the first cell whose value contains `rowlabel`, then collects the value
+    in the cell to the right for that row and all consecutive rows below
+    where the same label also appears in the same column.
+    Returns a single string joining all collected right-hand values separated with commas.
+    """
+
+    # Case-insensitive: looking for upper or lower case
+    def matches(value):
+        if value is None:
+            return False
+        return rowlabel.lower() in str(value).lower()
+
+    # Step 1: Find the first occurrence of the label
+    start_row = None
+    start_col = None
+    for row in sheet.iter_rows():
+        for cell in row:
+            if matches(cell.value):
+                start_row = cell.row
+                start_col = getattr(cell, "col_idx", cell.column)
+                break
+        if start_row is not None:
+            break
+
+    if start_row is None:
+        return "No match with row label"
+
+    # Step 2: Walk down while the label repeats and collect right-hand values
+    collected = []
+    r = start_row
+    while r <= sheet.max_row:
+        left_val = sheet.cell(row=r, column=start_col).value
+        if not matches(left_val):
+            break
+
+        right_val = sheet.cell(row=r, column=start_col + 1).value
+        if right_val is not None and str(right_val).strip() != "":
+            collected.append(str(right_val).strip())
+
+        r += 1
+
+    # Step 2: Return as a single string
+    return collected
+
+def add_info_CPS_from_row_with_two_markers(sheet, label1: str, label2: str, label3: str, label4: str, maindatabase, newdatabase, mainID):
+    """
+    label 1 - first row to match (e.g. Hazard classification)
+    label 2 - second row to match (e.g. Eye Irrit. 2)
+    label 3 & 4 looking in the row for them and taking values to the right
+    1) Find a row where two adjacent cells match (label1, label2) left→right.
+    2) In that row, find label3 and label4 (anywhere in the row), and for each:
+       - take the value from the cell immediately to the right.
+    3) Write to SQL columns named:
+         - "{label3}-{label2}"  (for value next to label3)
+         - "{label4}-{label2}"  (for value next to label4)
+    Matching is case-insensitive 'contains'.
+    Requires a DB cursor in outer scope named `cursor`.
+    """
+
+    # --- helpers ---
+    def q(name: str) -> str:
+        return f'"{name}"'
+
+    def matches(val, needle: str) -> bool:
+        if val is None:
+            return False
+        return needle.lower() in str(val).lower()
+
+    max_row = sheet.max_row
+    max_col = sheet.max_column
+
+    # --- 1) Find target row via adjacent (label1, label2) ---
+    target_row = None
+    for r in range(1, max_row + 1):
+        for c in range(1, max_col):  # up to max_col-1 because we check c and c+1
+            v1 = sheet.cell(row=r, column=c).value
+            v2 = sheet.cell(row=r, column=c + 1).value
+            if matches(v1, label1) and matches(v2, label2):
+                target_row = r
+                break
+        if target_row is not None:
+            break
+
+    if target_row is None:
+        return  # no matching row → nothing to insert
+
+    # --- 2) Scan the row to find label3 and label4 targets; capture right-hand values ---
+    extracted_data = {}
+
+    # label3 → col name "{label3}-{label2}"
+    col_name_3 = f"{label2} - {label3}"
+    # label4 → col name "{label2}-{label4}"
+    col_name_4 = f"{label2} - {label4}"
+
+    # We search the entire row for each label, reading the cell to the right when found
+    def capture_right_of_label(row: int, label: str):
+        for c in range(1, max_col):  # up to max_col-1 to read c+1
+            if matches(sheet.cell(row=row, column=c).value, label):
+                right_val = sheet.cell(row=row, column=c + 1).value
+                if right_val is None:
+                    return None
+                if isinstance(right_val, str):
+                    rv = right_val.strip()
+                    return rv if rv != "" else None
+                return right_val
+        return None
+
+    val3 = capture_right_of_label(target_row, label3)
+    val4 = capture_right_of_label(target_row, label4)
+
+    if val3 is not None:
+        extracted_data[col_name_3] = val3
+    if val4 is not None:
+        extracted_data[col_name_4] = val4
+
+    if not extracted_data:
+        return  # neither target produced a value → nothing to insert
+
+    # --- 3) Ensure table/columns exist ---
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (newdatabase,))
+    table_exists = cursor.fetchone()
+
+    needed_columns = list(extracted_data.keys())
+
+    if not table_exists:
+        cols_def = ", ".join([f"{q(col)} TEXT" for col in needed_columns])
+        fk_clause = f", FOREIGN KEY (ref) REFERENCES {q(maindatabase)}(ID)" if newdatabase != maindatabase else ""
+        cursor.execute(f'''
+            CREATE TABLE {q(newdatabase)} (
+                ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                ref TEXT
+                {"," if cols_def else ""} {cols_def}
+                {fk_clause}
+            )
+        ''')
+    else:
+        cursor.execute(f"PRAGMA table_info({q(newdatabase)})")
+        existing_cols = [col[1] for col in cursor.fetchall()]
+        if "ref" not in existing_cols and newdatabase != maindatabase:
+            cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN ref TEXT")
+        for col in needed_columns:
+            if col not in existing_cols:
+                cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
+
+    # --- 4) Upsert (same rules as your working pattern) ---
+    if newdatabase != maindatabase:
+        cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
+        exists = cursor.fetchone()
+        if exists:
+            set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
+            cursor.execute(
+                f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ref = ?",
+                list(extracted_data.values()) + [mainID]
+            )
+        else:
+            cols = ["ref"] + list(extracted_data.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            cursor.execute(
+                f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
+                [mainID] + list(extracted_data.values())
+            )
+    else:
+        cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?", (mainID,))
+        exists = cursor.fetchone()
+        if exists:
+            set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
+            cursor.execute(
+                f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ID = ?",
+                list(extracted_data.values()) + [mainID]
+            )
+        else:
+            cols = ["ID"] + list(extracted_data.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            cursor.execute(
+                f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
+                [mainID] + list(extracted_data.values())
+            )
+
 # def add_info_checkstring(table_name,id_column,mainID,search_column,search_string,update_column,update_string):
 #     """
 #     Checks if `search_string` exists in `search_column` for a given `mainID`.
@@ -1051,7 +1231,7 @@ if READ_IN_CPS == True:
                             "Inhalative toxicity Chronic: LOAEL (vapor) =", "Inhalative toxicity Chronic: LOAEL (dust/mist/aerosol) =", "Boiling Point", "Inhalative Toxicity Comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,inhal_type,[1],[inhal_type],
                                 "C2C_DATABASE","INHALTOX",inv_number)
-                        #   print the values to check what it was doing
+
 
                         # DERMAL TOXICITY
                         for dermal_type in ["Dermal toxicity Acute Tox classified", "Dermal toxicity STOT classified",
@@ -1074,7 +1254,10 @@ if READ_IN_CPS == True:
 
                         # ADD Specific concentration limits
 
-                        # CODE HERE
+                        SCL = collect_right_values_for_label_block(CPSsheet, "Hazard classification:") # make a string with all SCL for each CAS
+                        #print(SCL) #print to see if it makes a string with the specific conc limits
+                        for spec_conc_lim in SCL:
+                            add_info_CPS_from_row_with_two_markers(CPSsheet,"Hazard classification:", spec_conc_lim, "Lower Limit: (%)", "Upper Limit: (%)" , "C2C_DATABASE","SCONCLIM",inv_number)
 
                         #  OTHER CRITERIA
                         for other_criteria in ["Other comments"]:
