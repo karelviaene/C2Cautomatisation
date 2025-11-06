@@ -9,38 +9,123 @@ import zipfile
 
 C2Cpath = "/Users/juliakulpa/Desktop/test"
 C2Cfiles_path = os.path.join(C2Cpath,"CPS")
+images_output = "/Users/juliakulpa/Desktop/test/Chem_image"
 
-for filename in os.listdir(C2Cfiles_path):
-    full_path = os.path.join(C2Cfiles_path, filename)
+import os
+import zipfile
+
+import os
+import zipfile
 
 def extract_all_images_from_excel(excel_path, output_dir):
     """
-    Extracts all embedded images from an Excel (.xlsx) file
-    and saves them into a chosen folder.
+    Extract all embedded images from an Excel .xlsx or .xlsm file and save them to output_dir.
+    Images are renamed to "<excel_filename>-01.<ext>", "<excel_filename>-02.<ext>", etc.
+    Returns a list of saved file paths.
     """
-    # Create the folder if it doesn’t exist
+    # Basic validations
+    # Skip non-files
+    if not os.path.isfile(excel_path):
+        print(f"Skipped (not a file): {excel_path}")
+        return []
+
+    # Get extension safely
+    _, ext_in = os.path.splitext(excel_path)
+    ext_in = ext_in.lower()
+
+    # Skip unsupported or extensionless files
+    if ext_in not in (".xlsx", ".xlsm"):
+        print(f"Skipped (unsupported or missing extension): {excel_path}")
+        return []
+    if not zipfile.is_zipfile(excel_path):
+        raise ValueError(f"The file doesn't look like a valid Excel Open XML package: {excel_path}")
+
     os.makedirs(output_dir, exist_ok=True)
 
-    # Extract images from excel
+    excel_name = os.path.splitext(os.path.basename(excel_path))[0]
+    saved_paths = []
+
     with zipfile.ZipFile(excel_path, 'r') as z:
+        # Images live under xl/media in OOXML workbooks (both .xlsx and .xlsm)
         image_files = [f for f in z.namelist() if f.startswith('xl/media/')]
 
         if not image_files:
             print(f"No images found in {excel_path}.")
-            return
+            return saved_paths
 
-        for img_name in image_files:
+        # Sort for deterministic ordering
+        image_files.sort()
+
+        for idx, img_name in enumerate(image_files, start=1):
             img_data = z.read(img_name)
-            filename = os.path.basename(img_name)
+            img_ext = os.path.splitext(img_name)[1]  # keep original extension from the package
+
+            #saves each time a new image
+            if idx == 1:
+                filename = f"{excel_name}{img_ext}"
+            else:
+                filename = f"{excel_name}-{idx - 1}{img_ext}"
             output_path = os.path.join(output_dir, filename)
+
+            # If the same name exists, bump a counter
+            # if os.path.exists(output_path):
+            #     bump = 1
+            #     base, ext = os.path.splitext(filename)
+            #     while os.path.exists(output_path):
+            #         output_path = os.path.join(output_dir, f"{base}({bump}){ext}")
+            #         bump += 1
+            # Skip if file already exists
+            # if os.path.exists(output_path):
+            #     print(f"Skipped (already exists): {output_path}")
+            #     continue
+
             with open(output_path, 'wb') as f:
                 f.write(img_data)
-            print(f"Saved: {output_path}")
 
-    print(f"\nExtracted {len(image_files)} image(s) to: {output_dir}")
+            saved_paths.append(output_path)
+            #print(f"Saved: {output_path}") # check-point
 
-extract_all_images_from_excel(excel_path, output_dir)
+    #print(f"\nExtracted {len(image_files)} image(s) from '{os.path.basename(excel_path)}' to: {output_dir}") # check-point
+    return saved_paths
+
+
+
+for filename in os.listdir(C2Cfiles_path):
+    full_path = os.path.join(C2Cfiles_path, filename)
+    #print([full_path]) # check-point
+    extract_all_images_from_excel(full_path, images_output)
+
+#extract_all_images_from_excel("/Users/juliakulpa/Desktop/test/CPS/CPS_CAS 10-00-1.xlsx", images_output)
+
+# def extract_all_images_from_excel(excel_path, output_dir):
+#     """
+#     Extracts all embedded images from an Excel (.xlsx) file
+#     and saves them into a chosen folder.
+#     """
+#     # Create the folder if it doesn’t exist
+#     os.makedirs(output_dir, exist_ok=True)
 #
+#     # Extract images from excel
+#     with zipfile.ZipFile(excel_path, 'r') as z:
+#         image_files = [f for f in z.namelist() if f.startswith('xl/media/')]
+#
+#         if not image_files:
+#             print(f"No images found in {excel_path}.")
+#             return
+#
+#         for img_name in image_files:
+#             img_data = z.read(img_name)
+#             filename = os.path.basename(img_name)
+#             output_path = os.path.join(output_dir, filename)
+#             with open(output_path, 'wb') as f:
+#                 f.write(img_data)
+#             print(f"Saved: {output_path}")
+#
+#     print(f"\nExtracted {len(image_files)} image(s) to: {output_dir}")
+
+#extract_all_images_from_excel(excel_path, output_dir)
+#
+# EXTRACTING IMAGE TO EXCEL FILE
 # from openpyxl import load_workbook
 # from openpyxl.drawing.image import Image as XLImage
 # from openpyxl.utils import get_column_letter
