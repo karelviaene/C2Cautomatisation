@@ -1,10 +1,117 @@
+import os
+import zipfile
 
-string = ["a", "c", "d"]
+#import Pillow
 
-name = []
-for i in string:
-    name.append(i + "-a")
-print(name)
+# Change depending on where is the excel and where you want to save the images
+#output_dir = r"/Users/juliakulpa/Desktop/Imag_test/Photos"  # <-- put your directory here
+#excel_path = "/Users/juliakulpa/Desktop/Imag_test/Image.xlsx"
+
+C2Cpath = "/Users/juliakulpa/Desktop/test"
+C2Cfiles_path = os.path.join(C2Cpath,"CPS")
+
+for filename in os.listdir(C2Cfiles_path):
+    full_path = os.path.join(C2Cfiles_path, filename)
+
+def extract_all_images_from_excel(excel_path, output_dir):
+    """
+    Extracts all embedded images from an Excel (.xlsx) file
+    and saves them into a chosen folder.
+    """
+    # Create the folder if it doesn’t exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Extract images from excel
+    with zipfile.ZipFile(excel_path, 'r') as z:
+        image_files = [f for f in z.namelist() if f.startswith('xl/media/')]
+
+        if not image_files:
+            print(f"No images found in {excel_path}.")
+            return
+
+        for img_name in image_files:
+            img_data = z.read(img_name)
+            filename = os.path.basename(img_name)
+            output_path = os.path.join(output_dir, filename)
+            with open(output_path, 'wb') as f:
+                f.write(img_data)
+            print(f"Saved: {output_path}")
+
+    print(f"\nExtracted {len(image_files)} image(s) to: {output_dir}")
+
+extract_all_images_from_excel(excel_path, output_dir)
+#
+# from openpyxl import load_workbook
+# from openpyxl.drawing.image import Image as XLImage
+# from openpyxl.utils import get_column_letter
+# import os
+#
+# def insert_image_below_label(excel_path, image_path, sheet_name=None, label_text="Image"):
+#     """
+#     Finds the cell with text `label_text` (case-insensitive) in an Excel file,
+#     and inserts the given image directly below it (same column, next row).
+#     """
+#
+#     if not os.path.exists(excel_path):
+#         raise FileNotFoundError(f"Excel file not found: {excel_path}")
+#     if not os.path.exists(image_path):
+#         raise FileNotFoundError(f"Image file not found: {image_path}")
+#
+#     # Load workbook (must NOT be read_only to add images)
+#     wb = load_workbook(excel_path)
+#     ws = wb[sheet_name] if sheet_name else wb.active
+#
+#     # Find the cell labeled 'Image' (case-insensitive)
+#     image_label_row = None
+#     image_label_col = None
+#     wanted = label_text.strip().lower()
+#
+#     for row in ws.iter_rows():
+#         for cell in row:
+#             val = cell.value
+#             if isinstance(val, str) and val.strip().lower() == wanted:
+#                 image_label_row = cell.row
+#                 image_label_col = cell.column  # 1-based index
+#                 break
+#         if image_label_row is not None:
+#             break
+#
+#     if image_label_row is None:
+#         raise ValueError(f"No cell labeled '{label_text}' found.")
+#
+#     # Cell below the label
+#     target_row = image_label_row + 1
+#     target_col_letter = get_column_letter(image_label_col)
+#     target_cell = f"{target_col_letter}{target_row}"
+#
+#     # Create and add the image
+#     img = XLImage(image_path)
+#     # Optional: resize the image
+#     img.width = 100
+#     img.height = 100
+#
+#     ws.add_image(img, target_cell)
+#
+#     # Optional: adjust row height to avoid clipping
+#     ws.row_dimensions[target_row].height = max(ws.row_dimensions[target_row].height or 15, 80)
+#
+#     wb.save(excel_path)
+#     print(f"Image inserted below '{label_text}' at {target_cell} in {excel_path}")
+#
+#
+# # Example
+#
+# insert_image_below_label(excel_path=r"/Users/juliakulpa/Desktop/Imag_test/Image copy.xlsx", image_path=r"/Users/juliakulpa/Desktop/Imag_test/image2.png", sheet_name=None, label_text="Image")
+#
+
+
+
+# string = ["a", "c", "d"]
+#
+# name = []
+# for i in string:
+#     name.append(i + "-a")
+# print(name)
 
 
 # import pandas as pd

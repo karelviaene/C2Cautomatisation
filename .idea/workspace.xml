@@ -7,6 +7,7 @@
     <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="All functions apart from SCL">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Functions-tests.py" beforeDir="false" afterPath="$PROJECT_DIR$/Functions-tests.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -34,12 +35,12 @@
     &quot;assignee&quot;: &quot;karelviaene&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/karelviaene/C2Cautomatisation.git",
-    "accountId": "9af34f37-2955-4015-899c-fce51d611cc4"
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/karelviaene/C2Cautomatisation.git&quot;,
+    &quot;accountId&quot;: &quot;9af34f37-2955-4015-899c-fce51d611cc4&quot;
   }
-}]]></component>
+}</component>
   <component name="ProblemsViewState">
     <option name="selectedTabId" value="CurrentFile" />
   </component>
@@ -68,7 +69,7 @@
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "git-widget-placeholder": "julia-SCL-function",
+    "git-widget-placeholder": "julia",
     "settings.editor.selected.configurable": "preferences.pluginManager"
   }
 }]]></component>

@@ -871,7 +871,7 @@ def add_info_CPS_right_until_empty(sheet, rowlabel, column_offsets, column_names
             )
 
 
-def collect_right_values_for_label_block(sheet, rowlabel: str):
+def loop_over_to_collect_right_values(sheet, rowlabel: str):
     """
     Finds the first cell whose value contains `rowlabel`, then collects the value
     in the cell to the right for that row and all consecutive rows below
@@ -1173,7 +1173,7 @@ if READ_IN_CPS == True:
                                    "C2C_DATABASE","CHEMICALCLASS",inv_number)
 
                         # Adding other info
-                        for o_info in ["Molecular weight","Boiling point", "Log kow (octanol-water partition coefficient)", "Vapor pressure", "Water solubility", "SMILES"]:
+                        for o_info in ["Molecular weight","Boiling point", "Log kow (octanol-water partition coefficient)", "Vapor pressure", "Water solubility", "pH", "SMILES"]:
                                add_info_CPS_right_until_empty(CPSsheet,o_info,[2],[o_info],
                                    "C2C_DATABASE","OTHERINFO",inv_number, include_resource=False)
 
@@ -1241,7 +1241,7 @@ if READ_IN_CPS == True:
 
                         # SKIN/EYE IRRITATION/CORROSION
                         for irrit_type in ["Skin irritation classification", "Skin testing: conclusion", "Eye irritation classification",
-                            "Eye testing conclusion", "Respiratory irritation classification", "Respiratory testing conclusion", "pH", "Corrosion/irritation comments"]:
+                            "Eye testing conclusion", "Respiratory irritation classification", "Respiratory testing conclusion", "Corrosion/irritation comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,irrit_type,[1],[irrit_type],
                                 "C2C_DATABASE","IRRITCOR",inv_number)
 
@@ -1254,7 +1254,7 @@ if READ_IN_CPS == True:
 
                         # ADD Specific concentration limits
 
-                        SCL = collect_right_values_for_label_block(CPSsheet, "Hazard classification:") # make a string with all SCL for each CAS
+                        SCL = loop_over_to_collect_right_values(CPSsheet, "Hazard classification:") # make a string with all SCL for each CAS
                         #print(SCL) #print to see if it makes a string with the specific conc limits
                         for spec_conc_lim in SCL:
                             add_info_CPS_from_row_with_two_markers(CPSsheet,"Hazard classification:", spec_conc_lim, "Lower Limit: (%)", "Upper Limit: (%)" , "C2C_DATABASE","SCONCLIM",inv_number)
@@ -1269,22 +1269,22 @@ if READ_IN_CPS == True:
                             add_info_CPS_right_until_empty(CPSsheet, aqtox_type, [1], [aqtox_type],
                                                 "C2C_DATABASE", "AQUATOX", inv_number)
                             # VERTEBRATE FISH
-                        for fish_type in ["Fish toxicity Acute: LC50 (96h) =", "Fish toxicity Chronic: NOEC =", "Fish toxicity Acute QSAR: LC50 =", "Fish toxicity Chronic QSAR: NOEC ="]:
+                        for fish_type in ["Fish toxicity Acute: LC50 (96h) =", "Fish toxicity Chronic: NOEC =", "Fish toxicity Acute QSAR: LC50 =", "Fish toxicity Chronic QSAR: NOEC =", "Fish toxicity comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,fish_type,[1],[fish_type],
                                 "C2C_DATABASE","FISHTOX",inv_number)
                             # INVERTEBRATE
-                        for inv_type in ["Invertebrate toxicity Acute: L(E)C50 (48h) =", "Invertebrae toxicity Chronic: NOEC =", "Invertebrae toxicity Acute QSAR: LC50 =", "Invertebrae toxicity Chronic QSAR: NOEC ="]:
+                        for inv_type in ["Invertebrate toxicity Acute: L(E)C50 (48h) =", "Invertebrae toxicity Chronic: NOEC =", "Invertebrae toxicity Acute QSAR: LC50 =", "Invertebrae toxicity Chronic QSAR: NOEC =", "Invertebrate toxicity comments"]:
                             add_info_CPS_right_until_empty(CPSsheet, inv_type, [1], [inv_type],
                                                "C2C_DATABASE", "INVTOX", inv_number)
                             # ALGAE
-                        for algae_type in ["Algae toxicity Acute: L(E)C50 (72/96h) =", "Algae toxicity Chronic: NOEC =", "Algae toxicity Acute QSAR: LC50 =", "Algae toxicity Chronic QSAR: NOEC ="]:
+                        for algae_type in ["Algae toxicity Acute: L(E)C50 (72/96h) =", "Algae toxicity Chronic: NOEC =", "Algae toxicity Acute QSAR: LC50 =", "Algae toxicity Chronic QSAR: NOEC =", "Algae toxicity comments:"]:
                             add_info_CPS_right_until_empty(CPSsheet, algae_type, [1], [algae_type],
                                                "C2C_DATABASE", "ALGAETOX", inv_number)
 
                         # TERRESTRIAL TOXICITY
                         for tertox_type in ["Terrestial toxicity CLP classification", "Terrestial toxicity Acute (Chicken): LD50=", "Terrestial toxicity Acute (Duck): LD50=",
                                             "Terrestial toxicity Acute (Worm): EC50=", "Terrestial toxicity Chronic (Chicken): NOEC=", "Terrestial toxicity Chronic (Duck): NOEC=",
-                                            "Terrestial toxicity Chronic (Worm): NOEC=", "Terrestial toxicity Comments"]:
+                                            "Terrestial toxicity Chronic (Worm): NOEC=", "Terrestial toxicity comments"]:
                             add_info_CPS_right_until_empty(CPSsheet, tertox_type, [1], [tertox_type],
                                                "C2C_DATABASE", "TERTOX", inv_number)
                         # Other species toxicity
