@@ -10,6 +10,7 @@ from tkinter import filedialog
 import os
 import json
 import sqlite3
+import time
 
 # Function to load in a file
 def select_file():
@@ -72,17 +73,67 @@ formatted_cas = [{"casNumber": cas, "ecNumber": ""} for cas in CASall]
 formatted_ec = [{"casNumber": "", "ecNumber": ec} for ec in CASall]
 
 print('Checking API')
-url = "https://api.nextsds.com/echa"
+
+# Load the API key from file: It's on the dropbox under Science/Data searches/ED screener/input databases/NextSDS API key.txt
+with open('/Users/arche/Arche Dropbox/Science/Data searches/ED screener/input databases/NextSDS API key.txt') as creds:
+    api_key = creds.readlines()[0]  # API key is on the first line
+
+# Split up list in smaller parts (chunks)
+def chunk_list(lst, chunk_size):
+    for i in range(0, len(lst), chunk_size):
+        yield lst[i:i + chunk_size]
+
+start_url = "https://api.nextsds.com/jobs/start"
+status_url = "https://api.nextsds.com/jobs/retrieve"
 headers = {
     "accept": "application/json",
-    "Authorization": "Bearer b4077cae-b5b0-49a3-9c93-9925740adfe6",
+    "Authorization": f"Bearer {api_key}",
     "Content-Type": "application/json"
 }
-data = formatted_cas
-response = requests.post(url, headers=headers, json=data)
-CnL_json = response.json()["output"]
+# Step 1: Submit all jobs
+jobs = []
+for idx, cas_chunk in enumerate(chunk_list(CASall, 250)):
+    data = {
+        "taskId": "echa-api",
+        "payload": cas_chunk
+    }
+    try:
+        response = requests.post(start_url, headers=headers, json=data)
+        if response.status_code == 200:
+            job_id = response.json().get("id")
+            jobs.append({"id": job_id, "index": idx + 1, "done": False, "output": None})
+            print(f"Chunk {idx + 1}: Job submitted successfully: {job_id}")
+        else:
+            print(f"Chunk {idx + 1}: Failed to submit job")
+    except Exception as e:
+        print(f"Chunk {idx + 1}: Exception during job submission: {str(e)}")
 
-print("Status Code:", response.status_code)
+# Step 2: Monitor all jobs in one loop
+while not all(job["done"] for job in jobs):
+    time.sleep(10)
+    for job in jobs:
+        if job["done"]:
+            continue
+        try:
+            status_response = requests.get(f"{status_url}/{job['id']}", headers=headers)
+            if status_response.status_code == 200:
+                status_data = status_response.json()
+                job_status = status_data.get("status")
+                print(f"Chunk {job['index']}: Job status: {job_status}")
+                if job_status not in ["STARTED", "EXECUTING"]:
+                    job["done"] = True
+                    job["output"] = status_data.get("output", [])
+            elif status_response.status_code in [400, 404]:
+                print(f"Chunk {job['index']}: Job error ({status_response.status_code})")
+                job["done"] = True
+        except Exception as e:
+            print(f"Chunk {job['index']}: Exception during status check: {str(e)}")
+
+# Step 3: Combine all outputs
+CnL_json = []
+for job in jobs:
+    if job["output"]:
+        CnL_json.extend(job["output"])
 
 # Save to a JSON file
 currentdir = os.getcwd()
@@ -92,7 +143,7 @@ if not os.path.exists(exportpath):
 formatted_time = datetime.now().strftime("%Y-%m-%d %H-%M")  # Customize format as needed
 exportjson = os.path.join(exportpath, "CnLscreener exportJSON " + formatted_time +".json")
 with open(exportjson, "w") as json_file:
-    json.dump(response.json(), json_file, indent=2)
+    json.dump(CnL_json, json_file, indent=2)
 
 
 #### Upload info to CnL database ####
@@ -113,7 +164,7 @@ try:
     # Ensure ECHACHEM_CL table exists
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ECHACHEM_CL (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         code TEXT ,
         on_cl TEXT,
         cas TEXT,

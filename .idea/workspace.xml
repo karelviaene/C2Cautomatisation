@@ -7,6 +7,7 @@
     <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
