@@ -9,13 +9,21 @@ from datetime import datetime
 from openpyxl import load_workbook
 
 # Define the path to your SQLite database file
-C2Cpath = "/Users/arche/Documents/Python/C2Cautomatisation/Testing"
+C2Cpath = "/Users/juliakulpa/Desktop/Test_excel_imports"
 C2Cfiles_path = os.path.join(C2Cpath,"CPS")
 # C2Cpath = "/Users/arche/Arche Dropbox/C2C/08_Chemical Profiling/"
 # C2Cfiles_path = os.path.join(C2Cpath)
-db_path = os.path.join(C2Cpath,"Database/C2Cdatabase_20250905.db")
+db_path = os.path.join(C2Cpath,"Database/C2Cdatabase.db")
+# /Users/juliakulpa/Desktop/Test_excel_imports/Database/C2Cdatabase.db
+print(db_path)
+# # LOAD EXCEL CPS TEMPLATE
+template_path = "/Users/juliakulpa/Desktop/Test_excel_imports/Template/CPS_CAS TEMPLATE_V1.xlsm"
+template_wb = load_workbook(template_path, read_only=False, keep_vba=True)
+ws_template = template_wb["C2Coverview"]
 
-#### CUSTOM FUNCTIONS ####
+
+### CUSTOM FUNCTIONS ###
+
 def db_to_excel_one_below(table_name, column_to_get,lookup_column,lookup_value,label_excel):
     # Query the database
     query = f"SELECT [{column_to_get}] FROM {table_name} WHERE {lookup_column} = ?"
@@ -145,21 +153,19 @@ def refdb_to_excel_source_right(maindb, main_ref, linked_db, link_ref, column_to
     except sqlite3.Error as e:
         print("SQLite error:", e)
 
-# LOAD EXCEL CPS TEMPLATE
-template_path = "/Users/arche/Documents/Python/C2Cautomatisation/Template/CPS_Template_01.xlsm"
-template_wb = load_workbook(template_path, read_only=False, keep_vba=True)
-ws_template = template_wb["C2Coverview"]
+
 
 try:
     ### SQL SET-UP
-    connection = sqlite3.connect(db_path)
+    connection = sqlite3.connect('/Users/juliakulpa/Desktop/Test_excel_imports/Database /C2Cdatabase.db')
     cursor = connection.cursor()
 
     print("Connected to SQLite database at:", db_path)
 
-    CAS = "111-11-1"
+    CAS = "10-00-0"
 
-    # GENERAL INFO: SINGLE CELL
+    # GENERAL INFO
+
     # db_to_excel_one_below(table_name="C2C_DATABASE",column_to_get="Common name",lookup_column="ID",lookup_value=CAS,
     # label_excel="Common name")
 
@@ -179,13 +185,13 @@ try:
     #                       labels_excel=labelsexcel,offset=2)
 
     # CARCINOGENICITY
-    # namesDBcols = ["Carcinogenicity Classified CLP", "Carcinogenicity Classified MAK", "Carcinogenicity Classified IARC",
-    #                 "Carcinogenicity Classified TLV","Carcinogenicity experimental evidence","Carcinogenicity Comments"]
-    # namesExcel = ["Carcinogenicity Classified CLP", "Carcinogenicity Classified MAK", "Carcinogenicity Classified IARC",
-    #                 "Carcinogenicity Classified TLV","Carcinogenicity experimental evidence","Carcinogenicity Comments"]
-    # for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
-    #     refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="CARCINOGENICITY", link_ref="ref",
-    #                            column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
+    namesDBcols = ["Carcinogenicity Classified CLP", "Carcinogenicity Classified MAK", "Carcinogenicity Classified IARC",
+                    "Carcinogenicity Classified TLV","Carcinogenicity experimental evidence","Carcinogenicity Comments"]
+    namesExcel = ["Carcinogenicity Classified CLP", "Carcinogenicity Classified MAK", "Carcinogenicity Classified IARC",
+                    "Carcinogenicity Classified TLV","Carcinogenicity experimental evidence","Carcinogenicity Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="CARCINOGENICITY", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # ED
     # namesDBcols = ["Endocrine Classified CLP", "Endocrine evidence", "Endocrine Disruption Comments"]
@@ -195,11 +201,11 @@ try:
     #                            column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # MUTAGENICITY
-    namesDBcols = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
-    namesExcel = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
-    for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
-        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
-                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
+    # namesDBcols = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
+    # namesExcel = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
+    # for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
+    #     refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
+    #                            column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # REPROTOX
 
@@ -246,7 +252,7 @@ try:
 
 
     #### SAVE THE FILLED IN CPS EXCEL ####
-    template_wb.save(os.path.join(C2Cfiles_path, "Test export.xlsm"))
+    template_wb.save('/Users/juliakulpa/Desktop/Test_excel_imports/Testing/Testexport.xlsm')
 
 except sqlite3.Error as e:
     print("SQLite error:", e)
