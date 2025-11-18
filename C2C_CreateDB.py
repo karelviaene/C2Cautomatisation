@@ -1240,7 +1240,7 @@ if READ_IN_CPS == True:
                         #add_info_CPS_below(CPSsheet, ["Molecular Formula"], "C2C_DATABASE", "C2C_DATABASE", inv_number)
 
                         # Add various info
-                        for info in ["Organohalogens","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]:
+                        for info in ["Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]:
                                add_info_CPS_one_cell_right(CPSsheet,info,[2],[info],
                                    "C2C_DATABASE","CHEMICALCLASS",inv_number)
 

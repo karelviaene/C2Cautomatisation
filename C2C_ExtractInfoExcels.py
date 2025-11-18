@@ -17,7 +17,7 @@ db_path = os.path.join(C2Cpath,"Database/C2Cdatabase.db")
 # /Users/juliakulpa/Desktop/Test_excel_imports/Database/C2Cdatabase.db
 print(db_path)
 # # LOAD EXCEL CPS TEMPLATE
-template_path = "/Users/juliakulpa/Desktop/Test_excel_imports/Template/CPS_CAS TEMPLATE_V1.xlsm"
+template_path = "/Users/juliakulpa/Desktop/Test_excel_imports/Template/CPS_CAS TEMPLATE V2.xlsm"
 template_wb = load_workbook(template_path, read_only=False, keep_vba=True)
 ws_template = template_wb["C2Coverview"]
 
@@ -98,22 +98,25 @@ def db_to_excel_multiple_below(maindb, main_ref, linked_db, link_ref, column_to_
                 if cell.value and isinstance(cell.value, str) and label_excel.lower() in cell.value.lower():
                     start_row = cell.row + 1
                     col = cell.column
+                    #print(f"First test on{start_row, col}")
 
-                    # Insert each value below the label, adding rows if needed
-                    for i, result in enumerate(results):
-                        target_row = start_row + i
-                        row_cells = ws_template[target_row+1]
+                    # Place each value in the first empty cell below the starting row
+                    for result in results:
+                        # Start searching from start_row downward
+                        target_row = start_row
 
-                        # Check if all cells in the row are empty
-                        if all(cell.value in (None, '') for cell in row_cells):
-                            # Row exists and is empty — reuse it
-                            ws_template.cell(row=target_row, column=col).value = result[0]
-                        else:
-                            # Row has data — insert a new row
-                            ws_template.insert_rows(target_row)
-                            ws_template.cell(row=target_row, column=col).value = result[0]
+                        # Keep moving down until we find an empty cell in the target column
+                        while ws_template.cell(row=target_row, column=col).value not in (None, ''):
+                            target_row += 1
 
-                        print(f"Inserted '{result[0]}' into cell {ws_template.cell(row=start_row + i, column=col).coordinate}")
+                        #print(f"target row{target_row}")
+
+                        # Write the value in the first empty cell found
+                        ws_template.cell(row=target_row, column=col).value = result[0]
+
+                        print(
+                            f"Inserted '{result[0]}' into cell {ws_template.cell(row=target_row, column=col).coordinate}")
+
                     return
 
         print(f"Label '{label_excel}' not found in worksheet.")
@@ -165,25 +168,40 @@ try:
     CAS = "10-00-0"
 
     # GENERAL INFO
+    #Add general info
+    namesDBcol_gen = ["Chemical name", "Common name", "CAS number", "EC number", "Linked CAS Read across",
+                   "Linked CAS Monomers", "Linked CAS Degradation Products"]
+    namesExcel_gen = ["Chemical name", "Common name", "CAS number", "EC number", "Linked CAS Read across",
+                   "Linked CAS Monomers", "Linked CAS Degradation Products"]
+    for namesDBcol_gen, namesExcel_gen in zip(namesDBcol_gen,namesExcel_gen):
+        db_to_excel_multiple_below(maindb="C2C_DATABASE", main_ref="ID", linked_db="GENERALINFO", link_ref="ref",
+                               column_to_get=namesDBcol_gen, lookup_column="ID",lookup_value =CAS, label_excel=namesExcel_gen)
+    # ADD ASSESSORS
+    db_to_excel_multiple_below(maindb="C2C_DATABASE", main_ref="ID", linked_db="ASSESSORS", link_ref="ref",
+                               column_to_get="Name assessor", lookup_column="ID", lookup_value=CAS,
+                               label_excel="Name assessor")
+    db_to_excel_multiple_below(maindb="C2C_DATABASE", main_ref="ID", linked_db="ASSESSORS", link_ref="ref",
+                               column_to_get="Date assessed", lookup_column="ID", lookup_value=CAS,
+                               label_excel="Date created/updated")
+    ## Add various info CHEMICAL CLASS
+    namesDBcol_CC = ["Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]
+    namesExcel_CC = ["Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]
+    for names_DB, name_EX in zip(namesDBcol_CC, namesExcel_CC):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="CHEMICALCLASS", link_ref="ref",
+                                    column_to_get=names_DB, lookup_column="ID", lookup_value=CAS,
+                                    label_excel=name_EX, offset=2)
 
-    # db_to_excel_one_below(table_name="C2C_DATABASE",column_to_get="Common name",lookup_column="ID",lookup_value=CAS,
-    # label_excel="Common name")
-
-    # GENERAL INFO: MULTIPLE CELLS
-    # namesDBcols = ["","","","",
-    #                "","","","Name assessor","Date assessed"]
-    # namesExcel = ["Molecular Formula or chemical picture","Chemical name","Common name","CAS number",
-    #                "Linked CAS Read across","Linked CAS Monomers","Linked CAS Degradation Products","Name assessor","Date created/updated"]
-    # for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
-    #     db_to_excel_multiple_below(maindb="C2C_DATABASE", main_ref="ID", linked_db="ASSESSORS", link_ref="ref",
-    #                            column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel)
-
-    # CHEMICAL CLASS
-    # colsdatabase = ["Organohalogens","Toxic metal","Colourant", "Geological", "Biological"]
-    # labelsexcel = ["Organohalogen","Toxic metal","Colourant", "Geological", "Biological"]
-    # db_to_excel_x_right(table_name="C2C_DATABASE", columns_to_get=colsdatabase, lookup_column="ID", lookup_value=CAS,
-    #                       labels_excel=labelsexcel,offset=2)
-
+    # Adding other info
+    namesDBcol_OTHER = ["Molecular weight","Boiling point", "Log kow (octanol-water partition coefficient)", "Vapor pressure", "Water solubility", "pH", "SMILES"]
+    namesExcel_OTHER = ["Molecular weight","Boiling point", "Log kow (octanol-water partition coefficient)", "Vapor pressure", "Water solubility", "pH", "SMILES"]
+    for names_DB_OTHER, name_EX_OTHER in zip(namesDBcol_OTHER, namesExcel_OTHER):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="OTHERINFO", link_ref="ref",
+                                    column_to_get=names_DB_OTHER, lookup_column="ID", lookup_value=CAS,
+                                    label_excel=name_EX_OTHER, offset=2)
+    #  OTHER CRITERIA
+    refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="OCRIT", link_ref="ref",
+                                column_to_get="Other comments", lookup_column="ID", lookup_value=CAS,
+                                label_excel="Other comments", offset=1)
     # CARCINOGENICITY
     namesDBcols = ["Carcinogenicity Classified CLP", "Carcinogenicity Classified MAK", "Carcinogenicity Classified IARC",
                     "Carcinogenicity Classified TLV","Carcinogenicity experimental evidence","Carcinogenicity Comments"]
@@ -194,11 +212,11 @@ try:
                                column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # ED
-    # namesDBcols = ["Endocrine Classified CLP", "Endocrine evidence", "Endocrine Disruption Comments"]
-    # namesExcel = ["Endocrine Classified CLP", "Endocrine evidence", "Endocrine Disruption Comments"]
-    # for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
-    #     refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="ENDOCRINE", link_ref="ref",
-    #                            column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
+    namesDBcols = ["Endocrine Classified CLP", "Endocrine evidence", "Endocrine Disruption Comments"]
+    namesExcel = ["Endocrine Classified CLP", "Endocrine evidence", "Endocrine Disruption Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="ENDOCRINE", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # MUTAGENICITY
     # namesDBcols = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
@@ -252,7 +270,7 @@ try:
 
 
     #### SAVE THE FILLED IN CPS EXCEL ####
-    template_wb.save('/Users/juliakulpa/Desktop/Test_excel_imports/Testing/Testexport.xlsm')
+    template_wb.save('/Users/juliakulpa/Desktop/Test_excel_imports/Testing/Test-export.xlsm')
 
 except sqlite3.Error as e:
     print("SQLite error:", e)

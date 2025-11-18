@@ -1,3 +1,48 @@
+for row in ws_template.iter_rows():
+    for cell in row:
+        if cell.value and isinstance(cell.value, str) and label_excel.lower() in cell.value.lower():
+            start_row = cell.row + 1
+            col = cell.column
+            print(f"First test on{start_row, col}")
+
+            # Place each value in the first empty cell below the starting row
+            for result in results:
+                # Start searching from start_row downward
+                target_row = start_row
+
+                # Keep moving down until we find an empty cell in the target column
+                while ws_template.cell(row=target_row, column=col).value not in (None, ''):
+                    target_row += 1
+
+                print(f"target row{target_row}")
+
+                # Write the value in the first empty cell found
+                ws_template.cell(row=target_row, column=col).value = result[0]
+
+                print(f"Inserted '{result[0]}' into cell {ws_template.cell(row=target_row, column=col).coordinate}")
+
+
+
+
+
+# Insert each value below the label, adding rows if needed
+                    for i, result in enumerate(results):
+                        target_row = start_row + i
+                        row_cells = ws_template[target_row+1]
+
+                        # Check if all cells in the row are empty
+                        if all(cell.value in (None, '') for cell in row_cells):
+                            # Row exists and is empty — reuse it
+                            ws_template.cell(row=target_row, column=col).value = result[0]
+                        else:
+                            # Row has data — insert a new row
+                            ws_template.insert_rows(target_row)
+                            ws_template.cell(row=target_row, column=col).value = result[0]
+
+
+
+
+
 import os
 import zipfile
 
