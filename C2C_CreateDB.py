@@ -1300,7 +1300,7 @@ if READ_IN_CPS == True:
                         # INHALATIVE TOXICITY
                         for inhal_type in ["Inhalative toxicity Acute Tox classification", "Inhalative toxicity STOT classified",
                             "Inhalative toxicity Acute: LC50 (gas) =", "Inhalative toxicity Acute: LC50 (vapor) =", "Inhalative toxicity Acute: LC50 (dust/mist/aerosol) =", "Inhalative toxicity Chronic: LOAEL (gas) =",
-                            "Inhalative toxicity Chronic: LOAEL (vapor) =", "Inhalative toxicity Chronic: LOAEL (dust/mist/aerosol) =", "Boiling Point", "Inhalative Toxicity Comments"]:
+                            "Inhalative toxicity Chronic: LOAEL (vapor) =", "Inhalative toxicity Chronic: LOAEL (dust/mist/aerosol) =", "Inhalative Toxicity Comments"]:
                             add_info_CPS_right_until_empty(CPSsheet,inhal_type,[1],[inhal_type],
                                 "C2C_DATABASE","INHALTOX",inv_number)
 

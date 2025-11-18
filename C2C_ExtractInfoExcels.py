@@ -219,56 +219,156 @@ try:
                                column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # MUTAGENICITY
-    # namesDBcols = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
-    # namesExcel = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
-    # for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
-    #     refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
-    #                            column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
+    namesDBcol_MUT = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
+    namesExcel_MUT = ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_MUT,namesExcel_MUT):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # REPROTOX
-
+    namesDBcol_REP = ["Reprotox Classified CLP", "Reprotox Classified MAK", "Reprotox Oral NOAEL =",
+                                           "Reprotox Inhalation NOAEL =", "Reproductive Toxicity Comments"]
+    namesExcel_REP = ["Reprotox Classified CLP", "Reprotox Classified MAK", "Reprotox Oral NOAEL =",
+                                           "Reprotox Inhalation NOAEL =", "Reproductive Toxicity Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_REP,namesExcel_REP):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="REPROTOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # DEVELOPMENTAL TOX
-
+    namesDBcol_DEV = ["Developmental Classified CLP", "Developmental Classified MAK", "Developmental Oral NOAEL =",
+                                           "Developmental Inhalation NOAEL =", "Developmental Toxicity Comments"]
+    namesExcel_DEV = ["Developmental Classified CLP", "Developmental Classified MAK", "Developmental Oral NOAEL =",
+                                           "Developmental Inhalation NOAEL =", "Developmental Toxicity Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_DEV,namesExcel_DEV):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="DEVELOPTOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # NEUROTOX
-
+    namesDBcol_NETOX = ["Neurotox Classified CLP", "Neurotox on a list", "Neurotox scientific evidence?",
+                            "Neurotox chronic LOAEL", "Neurtox STOT LOAEL", "Neurotox Comments"]
+    namesExcel_NETOX = ["Neurotox Classified CLP", "Neurotox on a list", "Neurotox scientific evidence?",
+                            "Neurotox chronic LOAEL", "Neurtox STOT LOAEL", "Neurotox Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_NETOX,namesExcel_NETOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="NEUROTOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # ORAL TOX
-
+    namesDBcol_ORTOX = ["Oral toxicity Acute Tox classified","Oral toxicity Asp Tox classified", "Oral toxicity STOT classified", "Oral Acute: LD50 =",
+                            "Oral Chronic: LOAEL =", "Oral Toxicity Comments"]
+    namesExcel_ORTOX = ["Oral toxicity Acute Tox classified:","Oral toxicity Asp Tox classified", "Oral toxicity STOT classified", "Oral Acute: LD50 =",
+                            "Oral Chronic: LOAEL =", "Oral Toxicity Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_ORTOX,namesExcel_ORTOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="ORALTOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # INHALE TOX
 
+    namesDBcol_INHTOX = ["Inhalative toxicity Acute Tox classification", "Inhalative toxicity STOT classified",
+                            "Inhalative toxicity Acute: LC50 (gas) =", "Inhalative toxicity Acute: LC50 (vapor) =", "Inhalative toxicity Acute: LC50 (dust/mist/aerosol) =", "Inhalative toxicity Chronic: LOAEL (gas) =",
+                            "Inhalative toxicity Chronic: LOAEL (vapor) =", "Inhalative toxicity Chronic: LOAEL (dust/mist/aerosol) =", "Inhalative Toxicity Comments"]
+    namesExcel_INHTOX = ["Inhalative toxicity Acute Tox classification", "Inhalative toxicity STOT classified",
+                            "Inhalative toxicity Acute: LC50 (gas) =", "Inhalative toxicity Acute: LC50 (vapor) =", "Inhalative toxicity Acute: LC50 (dust/mist/aerosol) =", "Inhalative toxicity Chronic: LOAEL (gas) =",
+                            "Inhalative toxicity Chronic: LOAEL (vapor) =", "Inhalative toxicity Chronic: LOAEL (dust/mist/aerosol) =", "Inhalative Toxicity Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_INHTOX,namesExcel_INHTOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="INHALTOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # DERMAL TOX
-
+    namesDBcol_DERMTOX = ["Dermal toxicity Acute Tox classified", "Dermal toxicity STOT classified",
+                                            "Dermal Acute: LD50 =", "Dermal Chronic: LOAEL =", "Dermal Toxicity Comments"]
+    namesExcel_DERMTOX = ["Dermal toxicity Acute Tox classified", "Dermal toxicity STOT classified",
+                                            "Dermal Acute: LD50 =", "Dermal Chronic: LOAEL =", "Dermal Toxicity Comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_DERMTOX,namesExcel_DERMTOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="DERMALTOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # SKIN/EYE IRRIT/COR
-
+    namesDBcol_IRR = ["Skin irritation classification", "Skin testing: conclusion", "Eye irritation classification",
+                            "Eye testing conclusion", "Respiratory irritation classification", "Respiratory testing conclusion", "Corrosion/irritation comments"]
+    namesExcel_IRR = ["Skin irritation classification", "Skin testing: conclusion", "Eye irritation classification",
+                            "Eye testing conclusion", "Respiratory irritation classification", "Respiratory testing conclusion", "Corrosion/irritation comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_IRR,namesExcel_IRR):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="IRRITCOR", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # SENSITISATION
-
+    namesDBcol_SENS = ["Skin sensitization CLP classification", "Skin sensitization MAK classification",
+                            "Skin sensitization testing conclusion", "Respiratory sensitization CLP classification",
+                            "Respiratory sensitization MAK classification", "Respiratory sensitization testing conclusion", "Sensitization comments"]
+    namesExcel_SENS = ["Skin sensitization CLP classification", "Skin sensitization MAK classification",
+                            "Skin sensitization testing conclusion", "Respiratory sensitization CLP classification",
+                            "Respiratory sensitization MAK classification", "Respiratory sensitization testing conclusion", "Sensitization comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_SENS,namesExcel_SENS):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="SENSITISATION", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # SPECIFIC CONCENTRATION LIMITS
+    # CODE TO BE ADDED: PROBABLY A NEW FUNCTION NEEDED:)
 
-    # OTHER
+    # AQUATIC TOXICITY
 
-    # FISH TOX
+    namesDBcol_AQTOX = ["Aquatic toxicity Acute Tox classified", "Aquatic toxicity Chronic Tox classified","Water solubility", "M factor"]
+    namesExcel_AQTOX = ["Aquatic toxicity Acute Tox classified", "Aquatic toxicity Chronic Tox classified","Water solubility", "M factor"]
+    for namesDBcol, nameExcel in zip(namesDBcol_AQTOX,namesExcel_AQTOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="AQUATOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
+    # VERTEBRATE FISH
+    namesDBcol_FISHTOX = ["Fish toxicity Acute: LC50 (96h) =", "Fish toxicity Chronic: NOEC =", "Fish toxicity Acute QSAR: LC50 =", "Fish toxicity Chronic QSAR: NOEC =", "Fish toxicity comments"]
+    namesExcel_FISHTOX = ["Fish toxicity Acute: LC50 (96h) =", "Fish toxicity Chronic: NOEC =", "Fish toxicity Acute QSAR: LC50 =", "Fish toxicity Chronic QSAR: NOEC =", "Fish toxicity comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_FISHTOX,namesExcel_FISHTOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="FISHTOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # INVERTEBRATE TOX
+    namesDBcol_INVTOX = ["Invertebrate toxicity Acute: L(E)C50 (48h) =", "Invertebrae toxicity Chronic: NOEC =", "Invertebrae toxicity Acute QSAR: LC50 =", "Invertebrae toxicity Chronic QSAR: NOEC =", "Invertebrate toxicity comments"]
+    namesExcel_INVTOX = ["Invertebrate toxicity Acute: L(E)C50 (48h) =", "Invertebrae toxicity Chronic: NOEC =", "Invertebrae toxicity Acute QSAR: LC50 =", "Invertebrae toxicity Chronic QSAR: NOEC =", "Invertebrate toxicity comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_INVTOX,namesExcel_INVTOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="INVTOX", link_ref="ref",
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
 
     # ALGAE TOX
+    namesDBcol_ALGTOX = ["Algae toxicity Acute: L(E)C50 (72/96h) =", "Algae toxicity Chronic: NOEC =", "Algae toxicity Acute QSAR: LC50 =", "Algae toxicity Chronic QSAR: NOEC =", "Algae toxicity comments:"]
+    namesExcel_ALGTOX = ["Algae toxicity Acute: L(E)C50 (72/96h) =", "Algae toxicity Chronic: NOEC =", "Algae toxicity Acute QSAR: LC50 =", "Algae toxicity Chronic QSAR: NOEC =", "Algae toxicity comments:"]
+    for namesDBcol, nameExcel in zip(namesDBcol_ALGTOX, namesExcel_ALGTOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="ALGAETOX", link_ref="ref",
+                                    column_to_get=namesDBcol, lookup_column="ID", lookup_value=CAS,
+                                    label_excel=nameExcel, offset=1)
 
     # TERRESTRIAL TOX
+    namesDBcol_TERTOX =  ["Terrestial toxicity CLP classification", "Terrestial toxicity Acute (Chicken): LD50=", "Terrestial toxicity Acute (Duck): LD50=",
+                                            "Terrestial toxicity Acute (Worm): EC50=", "Terrestial toxicity Chronic (Chicken): NOEC=", "Terrestial toxicity Chronic (Duck): NOEC=",
+                                            "Terrestial toxicity Chronic (Worm): NOEC=", "Terrestial toxicity comments"]
+    namesExcel_TERTOX =  ["Terrestial toxicity CLP classification", "Terrestial toxicity Acute (Chicken): LD50=", "Terrestial toxicity Acute (Duck): LD50=",
+                                            "Terrestial toxicity Acute (Worm): EC50=", "Terrestial toxicity Chronic (Chicken): NOEC=", "Terrestial toxicity Chronic (Duck): NOEC=",
+                                            "Terrestial toxicity Chronic (Worm): NOEC=", "Terrestial toxicity comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_TERTOX, namesExcel_TERTOX):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="TERTOX", link_ref="ref",
+                                    column_to_get=namesDBcol, lookup_column="ID", lookup_value=CAS,
+                                    label_excel=nameExcel, offset=1)
 
     # OTHER SPECIES TOX
-
+    refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="SPECTOX", link_ref="ref",
+                                column_to_get="Any other CLP species classification", lookup_column="ID", lookup_value=CAS,
+                                label_excel="Any other CLP species classification", offset=1)
     # PERSISTENCE
-
+    namesDBcol_PERS =  ["OECD 301: % DOC biodegradation after 28 days", "OECD 301: % ThOD biodegradation after 28 days",
+                            "OECD 302 or OECD 304A: % inherent biodegradation: ", "OECD 311","QSAR prediction", "Half-life (T1/2) Air", "Half-life (T1/2) Water", "Half-life (T1/2) Soil or sediment", "Persistence comments"]
+    namesExcel_PERS =  ["OECD 301: % DOC biodegradation after 28 days", "OECD 301: % ThOD biodegradation after 28 days",
+                            "OECD 302 or OECD 304A: % inherent biodegradation: ", "OECD 311","QSAR prediction", "Half-life (T1/2) Air", "Half-life (T1/2) Water", "Half-life (T1/2) Soil or sediment", "Persistence comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_PERS, namesExcel_PERS):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="PERSISTENCE", link_ref="ref",
+                                    column_to_get=namesDBcol, lookup_column="ID", lookup_value=CAS,
+                                    label_excel=nameExcel, offset=1)
     # BIOACCUMULATION
-
-    # COMBINED PB RISK FLAG
-
-    # COMBINED AQ RISK FLAG
-
+    namesDBcol_BIOAC =  ["BCF/BAF (experimental)", "BCF/BAF (QSAR)", "Bioaccumulation comments"]
+    namesExcel_BIOAC =  ["BCF/BAF (experimental)", "BCF/BAF (QSAR)", "Bioaccumulation comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_BIOAC, namesExcel_BIOAC):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="BIOACCUMULATION", link_ref="ref",
+                                    column_to_get=namesDBcol, lookup_column="ID", lookup_value=CAS,
+                                    label_excel=nameExcel, offset=1)
     # CLIMATIC RELEVANCE
-
-    # OTHER INFORMATION: PHYS CHEM
-
-
-
+    namesDBcol_CLIMREL =  ["Climatic listed?", "100 year GWP", "ODP", "Climatic relevance comments"]
+    namesExcel_CLIMREL =  ["Climatic listed?", "100 year GWP", "ODP", "Climatic relevance comments"]
+    for namesDBcol, nameExcel in zip(namesDBcol_CLIMREL, namesExcel_CLIMREL):
+        refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="CLIMATICRELEVANCE", link_ref="ref",
+                                    column_to_get=namesDBcol, lookup_column="ID", lookup_value=CAS,
+                                    label_excel=nameExcel, offset=1)
+    #  ADDITIONAL SOURCES
+    refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="ADDSOURCE", link_ref="ref",
+                                column_to_get="Additional sources", lookup_column="ID", lookup_value=CAS,
+                                label_excel="Additional sources", offset=1)
     #### SAVE THE FILLED IN CPS EXCEL ####
     template_wb.save('/Users/juliakulpa/Desktop/Test_excel_imports/Testing/Test-export.xlsm')
 

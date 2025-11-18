@@ -4,11 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="For now I made it work for the carc and it fills the correct data. Still needs: resource too and all others">
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="Working on C2C extraction info for excel">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Functions-tests.py" beforeDir="false" afterPath="$PROJECT_DIR$/Functions-tests.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -177,7 +176,15 @@
       <option name="project" value="LOCAL" />
       <updated>1763039592896</updated>
     </task>
-    <option name="localTasksCounter" value="12" />
+    <task id="LOCAL-00012" summary="Working on C2C extraction info for excel">
+      <option name="closed" value="true" />
+      <created>1763478338693</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1763478338693</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -190,7 +197,8 @@
     <MESSAGE value="update from 06-11" />
     <MESSAGE value="Added the extraction of images to an separate folder" />
     <MESSAGE value="For now I made it work for the carc and it fills the correct data. Still needs: resource too and all others" />
-    <option name="LAST_COMMIT_MESSAGE" value="For now I made it work for the carc and it fills the correct data. Still needs: resource too and all others" />
+    <MESSAGE value="Working on C2C extraction info for excel" />
+    <option name="LAST_COMMIT_MESSAGE" value="Working on C2C extraction info for excel" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
