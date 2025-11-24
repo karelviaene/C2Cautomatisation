@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="C2C filling the excel: all that can be filled with the right function are in">
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="C2C: OECD tests sorted out with different tables">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
@@ -193,7 +193,15 @@
       <option name="project" value="LOCAL" />
       <updated>1763482233232</updated>
     </task>
-    <option name="localTasksCounter" value="14" />
+    <task id="LOCAL-00014" summary="C2C: OECD tests sorted out with different tables">
+      <option name="closed" value="true" />
+      <created>1763982314971</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1763982314971</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -208,7 +216,8 @@
     <MESSAGE value="For now I made it work for the carc and it fills the correct data. Still needs: resource too and all others" />
     <MESSAGE value="Working on C2C extraction info for excel" />
     <MESSAGE value="C2C filling the excel: all that can be filled with the right function are in" />
-    <option name="LAST_COMMIT_MESSAGE" value="C2C filling the excel: all that can be filled with the right function are in" />
+    <MESSAGE value="C2C: OECD tests sorted out with different tables" />
+    <option name="LAST_COMMIT_MESSAGE" value="C2C: OECD tests sorted out with different tables" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

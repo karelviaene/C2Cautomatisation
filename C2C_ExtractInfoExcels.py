@@ -126,141 +126,137 @@ def db_to_excel_multiple_below(maindb, main_ref, linked_db, link_ref, column_to_
     except sqlite3.Error as e:
         print("SQLite error:", e)
 
-def refdb_to_excel_source_right(maindb, main_ref, linked_db, link_ref, column_to_get, lookup_column, lookup_value, label_excel,offset):
-    def refdb_to_pandas(maindb, main_ref, linked_db, link_ref,
-                        column_to_get, lookup_column, lookup_value):
-        """
-        Query the database for all matching values in `column_to_get`
-        (from `linked_db`) for rows where `maindb.lookup_column == lookup_value`,
-        joined via `link_ref` (linked_db) and `main_ref` (maindb),
-        and return the result as a pandas DataFrame.
-        """
-        try:
-            query = f"""
-                SELECT a.[{column_to_get}]
-                FROM {linked_db} a
-                JOIN {maindb} c ON a.{link_ref} = c.{main_ref}
-                WHERE c.{lookup_column} = ?
-            """
+def refdb_to_excel_source_right(
+    maindb,
+    main_ref,
+    linked_db,
+    link_ref,
+    column_to_get,    # base name, e.g. "source"
+    lookup_column,
+    lookup_value,
+    label_excel,
+    offset,
+    max_suffix=5,    # how far to look for -1, -2 for the additional data
+    include_resource=True # does it look for resources
+):
+    # helper: sanitize label like in add_info_CPS_right_until_empty
+    def sanitize_label(s: str) -> str:
+        s = (s or "").strip().lower()
+        s = s.replace(" ", "-")
+        s = re.sub(r"[^a-z0-9_\-]", "", s)
+        s = re.sub(r"-{2,}", "-", s)
+        return s or "unnamed"
 
-            cursor.execute(query, (lookup_value,))
-            rows = cursor.fetchall()
-
-            if not rows:
-                print(f"No results found for {lookup_column} = {lookup_value}")
-                # Return empty DataFrame with the correct column name
-                return pd.DataFrame(columns=[column_to_get])
-
-            # Make DataFrame with a single column named as requested
-            df = pd.DataFrame(rows, columns=[column_to_get])
-            return df
-
-        except sqlite3.Error as e:
-            print("SQLite error:", e)
-            # On error, return empty DataFrame with the correct column name
-            return pd.DataFrame(columns=[column_to_get])
-
-    # Query the database for all matching values
     try:
+        # 1) Get list of all columns in linked_db
+        pragma_sql = f"PRAGMA table_info([{linked_db}])"
+        cursor.execute(pragma_sql)
+        cols_info = cursor.fetchall()
+        all_cols = [row[1] for row in cols_info]  # row[1] is column name
+
+        # 2) Collect base + suffix columns for the main data (source, source-1, source-2, ...)
+        matching_cols = []
+        if column_to_get in all_cols:
+            matching_cols.append(column_to_get)
+
+        for i in range(1, max_suffix + 1):
+            candidate = f"{column_to_get}-{i}"
+            if candidate in all_cols:
+                matching_cols.append(candidate)
+
+        if not matching_cols:
+            print(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
+            return
+
+        # 3) Resource column name in SQL: resource-<sanitized label_excel>
+        resource_sql_col = None
+        select_resource = False
+        if include_resource:
+            safe_label = sanitize_label(label_excel)
+            candidate_resource_col = f"resource-{safe_label}"
+            if candidate_resource_col in all_cols:
+                resource_sql_col = candidate_resource_col
+                select_resource = True
+
+        # 4) Build SELECT list
+        select_parts = [f"a.[{col}]" for col in matching_cols]
+        if select_resource:
+            select_parts.append(f"a.[{resource_sql_col}]")
+
+        select_list = ", ".join(select_parts)
+
         query = f"""
-             SELECT a.[{column_to_get}]
-             FROM {linked_db} a
-             JOIN {maindb} c ON a.{link_ref} = c.{main_ref}
-             WHERE c.{lookup_column} = ?
-         """
+            SELECT {select_list}
+            FROM {linked_db} a
+            JOIN {maindb}  c ON a.{link_ref} = c.{main_ref}
+            WHERE c.{lookup_column} = ?
+            LIMIT 1
+        """
+
         cursor.execute(query, (lookup_value,))
-        results = cursor.fetchall()
-        if not results:
+        row = cursor.fetchone()
+        if not row:
             print(f"No results found for {lookup_column} = {lookup_value}")
             return
 
-        # Find the label in the worksheet
-        for row in ws_template.iter_rows():
-            for cell in row:
+        # Split row into value columns and (optional) resource
+        num_val_cols = len(matching_cols)
+        value_cols = row[:num_val_cols]
+        resource_val = row[num_val_cols] if select_resource else None
+
+        # 5) Find the label in the worksheet
+        for excel_row in ws_template.iter_rows():
+            for cell in excel_row:
                 if cell.value and isinstance(cell.value, str) and label_excel.lower() in cell.value.lower():
                     start_row = cell.row
-                    col = cell.column + offset
-                    for i,result in enumerate(results):
-                        target_row = start_row  # insert to the right
-                        if result[0] != None:
-                            ws_template.cell(row=target_row, column=col).value = result[0]
-                            print(f"Inserted '{result[0]}' into cell {ws_template.cell(row=start_row, column=col).coordinate}")
-                    return
+                    start_col = cell.column + offset  # first column to write values
+
+                    # 6) Write the main values horizontally to the right
+                    current_col = start_col
+                    for val in value_cols:
+                        if val is not None and val != "":
+                            ws_template.cell(row=start_row, column=current_col).value = val
+                            print(
+                                f"Inserted '{val}' into cell "
+                                f"{ws_template.cell(row=start_row, column=current_col).coordinate}"
+                            )
+                        current_col += 1
+
+                    # 7) If resource is present in SQL, put it in Excel "Resource" column
+                    if include_resource and resource_val not in (None, ""):
+                        resource_col_idx = None
+                        # Find the "Resource" header column in the template
+                        for hdr_row in ws_template.iter_rows():
+                            for hdr_cell in hdr_row:
+                                if (
+                                    isinstance(hdr_cell.value, str)
+                                    and hdr_cell.value.strip().lower() == "resource"
+                                ):
+                                    resource_col_idx = hdr_cell.column
+                                    break
+                            if resource_col_idx is not None:
+                                break
+
+                        if resource_col_idx is not None:
+                            ws_template.cell(row=start_row, column=resource_col_idx).value = resource_val
+                            print(
+                                f"Inserted resource '{resource_val}' into cell "
+                                f"{ws_template.cell(row=start_row, column=resource_col_idx).coordinate}"
+                            )
+                        else:
+                            print("Could not find 'Resource' column in Excel to write resource value.")
+
+                    return  # done after first matching label
 
         print(f"Label '{label_excel}' not found in worksheet.")
-    except sqlite3.Error as e:
-        print("SQLite error:", e)
-
-def refdb_to_pandas(maindb, main_ref, linked_db, link_ref, column_to_get, lookup_column, lookup_value):
-    """
-    Query the database for all matching values in `column_to_get`
-    (from `linked_db`) for rows where `maindb.lookup_column == lookup_value`,
-    joined via `link_ref` (linked_db) and `main_ref` (maindb),
-    and return the result as a pandas DataFrame.
-    """
-    try:
-        query = f"""
-            SELECT a.[{column_to_get}]
-            FROM {linked_db} a
-            JOIN {maindb} c ON a.{link_ref} = c.{main_ref}
-            WHERE c.{lookup_column} = ?
-        """
-
-        cursor.execute(query, (lookup_value,))
-        rows = cursor.fetchall()
-
-        if not rows:
-            print(f"No results found for {lookup_column} = {lookup_value}")
-            # Return empty DataFrame with the correct column name
-            return pd.DataFrame(columns=[column_to_get])
-
-        # Make DataFrame with a single column named as requested
-        df = pd.DataFrame(rows, columns=[column_to_get])
-        return df
 
     except sqlite3.Error as e:
         print("SQLite error:", e)
-        # On error, return empty DataFrame with the correct column name
-        return pd.DataFrame(columns=[column_to_get])
 
-def refdb_to_pandas_multi(
-    maindb, main_ref,
-    linked_db, link_ref,
-    columns_to_get,           # list of column names
-    lookup_column, lookup_value
-):
-    """
-    Query multiple columns from `linked_db` joined to `maindb` and
-    return the result as a pandas DataFrame.
 
-    columns_to_get must be a list, e.g.: ["col1", "col2", "col3"]
-    """
 
-    # Build SELECT a.[col1], a.[col2], ...
-    select_clause = ", ".join([f"a.[{col}]" for col in columns_to_get])
 
-    try:
-        query = f"""
-            SELECT {select_clause}
-            FROM {linked_db} a
-            JOIN {maindb} c ON a.{link_ref} = c.{main_ref}
-            WHERE c.{lookup_column} = ?
-        """
-
-        cursor.execute(query, (lookup_value,))
-        rows = cursor.fetchall()
-
-        if not rows:
-            print(f"No results found for {lookup_column} = {lookup_value}")
-            return pd.DataFrame(columns=columns_to_get)
-
-        # Return DataFrame with proper column names
-        return pd.DataFrame(rows, columns=columns_to_get)
-
-    except sqlite3.Error as e:
-        print("SQLite error:", e)
-        return pd.DataFrame(columns=columns_to_get)
-
+### Start with extracting
 try:
     ### SQL SET-UP
     connection = sqlite3.connect('/Users/juliakulpa/Desktop/Test_excel_imports/Database /C2Cdatabase.db')
@@ -312,7 +308,7 @@ try:
                     "Carcinogenicity Classified TLV","Carcinogenicity experimental evidence","Carcinogenicity Comments"]
     for namesDBcol, nameExcel in zip(namesDBcols,namesExcel):
         refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="CARCINOGENICITY", link_ref="ref",
-                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
+                               column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1,max_suffix=5,include_resource=True)
 
     # ED
     namesDBcols = ["Endocrine Classified CLP", "Endocrine evidence", "Endocrine Disruption Comments"]
@@ -327,13 +323,11 @@ try:
     for namesDBcol, nameExcel in zip(namesDBcol_MUT,namesExcel_MUT):
         refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
                                column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
-    # MUTAGENICITY
-    muta_df = refdb_to_pandas(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
-                               column_to_get="Mutagenicity Classified CLP", lookup_column="ID",lookup_value =CAS)
-    print(muta_df)
+    # MUTAGENICITY OECD TESTS
 
-    muta_df_1 = refdb_to_pandas_multi(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",columns_to_get=["Mutagenicity Classified CLP","OECD 488","OECD 489","OECD 478"], lookup_column="ID",lookup_value =CAS)
-    print(muta_df_1)
+    # To be filled later
+
+
     # REPROTOX
     namesDBcol_REP = ["Reprotox Classified CLP", "Reprotox Classified MAK", "Reprotox Oral NOAEL =",
                                            "Reprotox Inhalation NOAEL =", "Reproductive Toxicity Comments"]

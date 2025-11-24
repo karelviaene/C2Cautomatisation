@@ -1052,8 +1052,6 @@ def add_info_CPS_from_row_with_two_markers(sheet, label1: str, label2: str, labe
                 [mainID] + list(extracted_data.values())
             )
 
-
-
 def add_info_right_two_markers_OECD(sheet, label1: str, label2: str, maindatabase, newdatabase, mainID, include_resource: bool = True):
     """
     label 1 - first row to match (e.g. Hazard classification)
