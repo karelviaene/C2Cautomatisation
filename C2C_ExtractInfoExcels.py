@@ -102,20 +102,23 @@ def db_to_excel_multiple_below(maindb, main_ref, linked_db, link_ref, column_to_
 
                     # Place each value in the first empty cell below the starting row
                     for result in results:
-                        # Start searching from start_row downward
-                        target_row = start_row
+                        #If result is not none:
 
-                        # Keep moving down until we find an empty cell in the target column
-                        while ws_template.cell(row=target_row, column=col).value not in (None, ''):
-                            target_row += 1
+                        if result[0] != None:
+                            # Start searching from start_row downward
+                            target_row = start_row
 
-                        #print(f"target row{target_row}")
+                            # Keep moving down until we find an empty cell in the target column
+                            while ws_template.cell(row=target_row, column=col).value not in (None, ''):
+                                target_row += 1
 
-                        # Write the value in the first empty cell found
-                        ws_template.cell(row=target_row, column=col).value = result[0]
+                            #print(f"target row{target_row}")
 
-                        print(
-                            f"Inserted '{result[0]}' into cell {ws_template.cell(row=target_row, column=col).coordinate}")
+                            # Write the value in the first empty cell found
+                            ws_template.cell(row=target_row, column=col).value = result[0]
+
+                            print(
+                                f"Inserted '{result[0]}' into cell {ws_template.cell(row=target_row, column=col).coordinate}")
 
                     return
 
@@ -124,6 +127,38 @@ def db_to_excel_multiple_below(maindb, main_ref, linked_db, link_ref, column_to_
         print("SQLite error:", e)
 
 def refdb_to_excel_source_right(maindb, main_ref, linked_db, link_ref, column_to_get, lookup_column, lookup_value, label_excel,offset):
+    def refdb_to_pandas(maindb, main_ref, linked_db, link_ref,
+                        column_to_get, lookup_column, lookup_value):
+        """
+        Query the database for all matching values in `column_to_get`
+        (from `linked_db`) for rows where `maindb.lookup_column == lookup_value`,
+        joined via `link_ref` (linked_db) and `main_ref` (maindb),
+        and return the result as a pandas DataFrame.
+        """
+        try:
+            query = f"""
+                SELECT a.[{column_to_get}]
+                FROM {linked_db} a
+                JOIN {maindb} c ON a.{link_ref} = c.{main_ref}
+                WHERE c.{lookup_column} = ?
+            """
+
+            cursor.execute(query, (lookup_value,))
+            rows = cursor.fetchall()
+
+            if not rows:
+                print(f"No results found for {lookup_column} = {lookup_value}")
+                # Return empty DataFrame with the correct column name
+                return pd.DataFrame(columns=[column_to_get])
+
+            # Make DataFrame with a single column named as requested
+            df = pd.DataFrame(rows, columns=[column_to_get])
+            return df
+
+        except sqlite3.Error as e:
+            print("SQLite error:", e)
+            # On error, return empty DataFrame with the correct column name
+            return pd.DataFrame(columns=[column_to_get])
 
     # Query the database for all matching values
     try:
@@ -156,7 +191,75 @@ def refdb_to_excel_source_right(maindb, main_ref, linked_db, link_ref, column_to
     except sqlite3.Error as e:
         print("SQLite error:", e)
 
+def refdb_to_pandas(maindb, main_ref, linked_db, link_ref, column_to_get, lookup_column, lookup_value):
+    """
+    Query the database for all matching values in `column_to_get`
+    (from `linked_db`) for rows where `maindb.lookup_column == lookup_value`,
+    joined via `link_ref` (linked_db) and `main_ref` (maindb),
+    and return the result as a pandas DataFrame.
+    """
+    try:
+        query = f"""
+            SELECT a.[{column_to_get}]
+            FROM {linked_db} a
+            JOIN {maindb} c ON a.{link_ref} = c.{main_ref}
+            WHERE c.{lookup_column} = ?
+        """
 
+        cursor.execute(query, (lookup_value,))
+        rows = cursor.fetchall()
+
+        if not rows:
+            print(f"No results found for {lookup_column} = {lookup_value}")
+            # Return empty DataFrame with the correct column name
+            return pd.DataFrame(columns=[column_to_get])
+
+        # Make DataFrame with a single column named as requested
+        df = pd.DataFrame(rows, columns=[column_to_get])
+        return df
+
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
+        # On error, return empty DataFrame with the correct column name
+        return pd.DataFrame(columns=[column_to_get])
+
+def refdb_to_pandas_multi(
+    maindb, main_ref,
+    linked_db, link_ref,
+    columns_to_get,           # list of column names
+    lookup_column, lookup_value
+):
+    """
+    Query multiple columns from `linked_db` joined to `maindb` and
+    return the result as a pandas DataFrame.
+
+    columns_to_get must be a list, e.g.: ["col1", "col2", "col3"]
+    """
+
+    # Build SELECT a.[col1], a.[col2], ...
+    select_clause = ", ".join([f"a.[{col}]" for col in columns_to_get])
+
+    try:
+        query = f"""
+            SELECT {select_clause}
+            FROM {linked_db} a
+            JOIN {maindb} c ON a.{link_ref} = c.{main_ref}
+            WHERE c.{lookup_column} = ?
+        """
+
+        cursor.execute(query, (lookup_value,))
+        rows = cursor.fetchall()
+
+        if not rows:
+            print(f"No results found for {lookup_column} = {lookup_value}")
+            return pd.DataFrame(columns=columns_to_get)
+
+        # Return DataFrame with proper column names
+        return pd.DataFrame(rows, columns=columns_to_get)
+
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
+        return pd.DataFrame(columns=columns_to_get)
 
 try:
     ### SQL SET-UP
@@ -224,7 +327,13 @@ try:
     for namesDBcol, nameExcel in zip(namesDBcol_MUT,namesExcel_MUT):
         refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
                                column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
+    # MUTAGENICITY
+    muta_df = refdb_to_pandas(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
+                               column_to_get="Mutagenicity Classified CLP", lookup_column="ID",lookup_value =CAS)
+    print(muta_df)
 
+    muta_df_1 = refdb_to_pandas_multi(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",columns_to_get=["Mutagenicity Classified CLP","OECD 488","OECD 489","OECD 478"], lookup_column="ID",lookup_value =CAS)
+    print(muta_df_1)
     # REPROTOX
     namesDBcol_REP = ["Reprotox Classified CLP", "Reprotox Classified MAK", "Reprotox Oral NOAEL =",
                                            "Reprotox Inhalation NOAEL =", "Reproductive Toxicity Comments"]
