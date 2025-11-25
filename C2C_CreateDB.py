@@ -1052,10 +1052,12 @@ def add_info_CPS_from_row_with_two_markers(sheet, label1: str, label2: str, labe
                 [mainID] + list(extracted_data.values())
             )
 
+
+
 def add_info_right_two_markers_OECD(sheet, label1: str, label2: str, maindatabase, newdatabase, mainID, include_resource: bool = True):
     """
-    label 1 - first row to match (e.g. Hazard classification)
-    label 2 - second row to match (e.g. Eye Irrit. 2)
+    label 1 - first row to match
+    label 2 - second row to match
     1) Find a row where two adjacent cells match (label1, label2) left→right.
     2) Capture first non-empty cell to the right of label2.
     3) Write to SQL columns named: {label1}{label2}
@@ -1083,6 +1085,76 @@ def add_info_right_two_markers_OECD(sheet, label1: str, label2: str, maindatabas
         s = re.sub(r"-{2,}", "-", s)
         return s or "unnamed"
 
+    # --- NEW: if label2 is "no data", skip Excel and just write "no data" to SQL ---
+    if label2.strip().lower() == "no data":
+        safe_label2 = sanitize_label(label2)
+        col_name = f"{label1}{label2}"   # same pattern as normal case
+        extracted_data = {col_name: "no data"}
+
+        # Ensure table/columns exist
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (newdatabase,))
+        table_exists = cursor.fetchone()
+
+        needed_columns = list(extracted_data.keys())
+
+        if not table_exists:
+            cols_def = ", ".join([f"{q(col)} TEXT" for col in needed_columns])
+            fk_clause = f", FOREIGN KEY (ref) REFERENCES {q(maindatabase)}(ID)" if newdatabase != maindatabase else ""
+            cursor.execute(f'''
+                CREATE TABLE {q(newdatabase)} (
+                    ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ref TEXT
+                    {"," if cols_def else ""} {cols_def}
+                    {fk_clause}
+                )
+            ''')
+        else:
+            cursor.execute(f"PRAGMA table_info({q(newdatabase)})")
+            existing_cols = [col[1] for col in cursor.fetchall()]
+            if "ref" not in existing_cols and newdatabase != maindatabase:
+                cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN ref TEXT")
+            for col in needed_columns:
+                if col not in existing_cols:
+                    cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
+
+        # Upsert
+        if newdatabase != maindatabase:
+            cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
+            exists = cursor.fetchone()
+            if exists:
+                set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
+                cursor.execute(
+                    f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ref = ?",
+                    list(extracted_data.values()) + [mainID]
+                )
+            else:
+                cols = ["ref"] + list(extracted_data.keys())
+                placeholders = ", ".join(["?"] * len(cols))
+                cursor.execute(
+                    f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
+                    [mainID] + list(extracted_data.values())
+                )
+        else:
+            cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?", (mainID,))
+            exists = cursor.fetchone()
+            if exists:
+                set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
+                cursor.execute(
+                    f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ID = ?",
+                    list(extracted_data.values()) + [mainID]
+                )
+            else:
+                cols = ["ID"] + list(extracted_data.keys())
+                placeholders = ", ".join(["?"] * len(cols))
+                cursor.execute(
+                    f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
+                    [mainID] + list(extracted_data.values())
+                )
+
+        return  # done, no Excel lookup
+
+    # --- Normal behavior below (when label2 is NOT "no data") ---
+
     max_row = sheet.max_row
     max_col = sheet.max_column
 
@@ -1099,7 +1171,6 @@ def add_info_right_two_markers_OECD(sheet, label1: str, label2: str, maindatabas
                 target_row = r
                 break
         if target_row is not None:
-            #print("Target row:", target_row)
             break
 
     if target_row is None:
@@ -1154,7 +1225,6 @@ def add_info_right_two_markers_OECD(sheet, label1: str, label2: str, maindatabas
         return None
 
     val = capture_right_of_label(target_row, label2)
-    #print("Val", val)
 
     if val is not None:
         extracted_data[col_name] = val

@@ -7,6 +7,7 @@ import re
 import pandas as pd
 from datetime import datetime
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.cell.cell import MergedCell
 from openpyxl import load_workbook
 
 # Define the path to your SQLite database file
@@ -302,8 +303,6 @@ def remove_text_from_string(string, target_name):
         result.append(name)
     return result
 
-
-
 def write_list_right_of_label(ws_template: Worksheet, label_excel: str, offset: int, values_list: list):
     """
     Find the first cell whose value EXACTLY matches 'label_excel'
@@ -362,6 +361,356 @@ def write_list_right_of_label(ws_template: Worksheet, label_excel: str, offset: 
 
     if value_index < len(values_list):
         print(f"Warning: {len(values_list) - value_index} values not written — no more exact matching label rows.")
+
+
+def refdb_to_excel_source_after_two_targets(
+    maindb,
+    main_ref,
+    linked_db,
+    link_ref,
+    column_to_get,      # base name, e.g. "source"
+    lookup_column,
+    lookup_value,
+    first_label_excel,  # label of first target cell
+    second_label_excel, # label of second target cell (same row as first)
+    max_suffix=5,       # how far to look for -1, -2, ... columns
+    include_resource=True
+):
+    """
+    Finds a row where both first_label_excel and second_label_excel are exact matches.
+    Uses the rightmost of those as the "second target" and writes values starting at
+    the first unmerged empty cell to its right.
+    SQL resource column is: resource-<sanitized second_label_excel>.
+    In Excel, resource always goes to the 'Resource' column.
+    """
+    #pre-step sanitizing labels
+    def sanitize_label(s: str) -> str:
+        s = (s or "").strip().lower()
+        s = s.replace(" ", "-")
+        s = re.sub(r"[^a-z0-9_\-]", "", s)
+        s = re.sub(r"-{2,}", "-", s)
+        return s or "unnamed"
+
+    try:
+        # 1) Get list of all columns in linked_db
+        pragma_sql = f"PRAGMA table_info([{linked_db}])"
+        cursor.execute(pragma_sql)
+        cols_info = cursor.fetchall()
+        all_cols = [row[1] for row in cols_info]
+
+        # 2) Collect base + suffix columns for the main data
+        matching_cols = []
+        if column_to_get in all_cols:
+            matching_cols.append(column_to_get)
+
+        for i in range(1, max_suffix + 1):
+            cand = f"{column_to_get}-{i}"
+            if cand in all_cols:
+                matching_cols.append(cand)
+
+        if not matching_cols:
+            print(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
+            return
+
+        # 3) Resource column in SQL: resource-<sanitized second_label_excel>
+        resource_sql_col = None
+        select_resource = False
+        if include_resource:
+            safe_label = sanitize_label(second_label_excel)
+            cand_res = f"resource-{safe_label}"
+            if cand_res in all_cols:
+                resource_sql_col = cand_res
+                select_resource = True
+
+        # 4) Build SELECT list
+        select_parts = [f"a.[{col}]" for col in matching_cols]
+        if select_resource:
+            select_parts.append(f"a.[{resource_sql_col}]")
+        select_list = ", ".join(select_parts)
+
+        query = f"""
+            SELECT {select_list}
+            FROM {linked_db} a
+            JOIN {maindb}  c ON a.{link_ref} = c.{main_ref}
+            WHERE c.{lookup_column} = ?
+            LIMIT 1
+        """
+
+        cursor.execute(query, (lookup_value,))
+        row = cursor.fetchone()
+        if not row:
+            print(f"No results found for {lookup_column} = {lookup_value}")
+            return
+
+        num_val_cols = len(matching_cols)
+        value_cols = row[:num_val_cols]
+        resource_val = row[num_val_cols] if select_resource else None
+
+        # 5) Find a row where BOTH labels exist as exact cell matches
+        row_found = False
+        for excel_row in ws_template.iter_rows():
+            first_col_idx = None
+            second_col_idx = None
+
+            for cell in excel_row:
+                if isinstance(cell.value, str):
+                    cell_val = cell.value.strip()
+                    if cell_val == str(first_label_excel).strip():
+                        first_col_idx = cell.column
+                    elif cell_val == str(second_label_excel).strip():
+                        second_col_idx = cell.column
+
+            if first_col_idx is not None and second_col_idx is not None:
+                row_found = True
+                target_row = excel_row[0].row
+                second_target_col = max(first_col_idx, second_col_idx)
+
+                # 6) Find the first *unmerged* empty cell to the right
+                current_col = second_target_col + 1
+                while True:
+                    cell = ws_template.cell(row=target_row, column=current_col)
+
+                    # Skip merged cells (non top-left)
+                    if isinstance(cell, MergedCell):
+                        current_col += 1
+                        continue
+
+                    if cell.value in (None, ""):
+                        break
+
+                    current_col += 1
+
+                # 7) Write values, skipping merged/occupied cells
+                for val in value_cols:
+                    if val in (None, ""):
+                        continue
+
+                    while True:
+                        cell = ws_template.cell(row=target_row, column=current_col)
+
+                        if isinstance(cell, MergedCell) or cell.value not in (None, ""):
+                            current_col += 1
+                            continue
+
+                        cell.value = val
+                        print(
+                            f"Inserted '{val}' into cell {cell.coordinate}"
+                        )
+                        current_col += 1
+                        break
+
+                # 8) Put resource into Excel "Resource" column (header cell == 'Resource')
+                if include_resource and resource_val not in (None, ""):
+                    resource_col_idx = None
+                    for hdr_row in ws_template.iter_rows():
+                        for hdr_cell in hdr_row:
+                            if (
+                                isinstance(hdr_cell.value, str)
+                                and hdr_cell.value.strip().lower() == "resource"
+                            ):
+                                resource_col_idx = hdr_cell.column
+                                break
+                        if resource_col_idx is not None:
+                            break
+
+                    if resource_col_idx is not None:
+                        ws_template.cell(row=target_row, column=resource_col_idx).value = resource_val
+                        print(
+                            f"Inserted resource '{resource_val}' into cell "
+                            f"{ws_template.cell(row=target_row, column=resource_col_idx).coordinate}"
+                        )
+                    else:
+                        print("Could not find 'Resource' column in Excel to write resource value.")
+                break
+
+        if not row_found:
+            print(
+                f"No row found where both '{first_label_excel}' "
+                f"and '{second_label_excel}' are present as exact matches."
+            )
+
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
+
+def refdb_to_excel_source_after_two_targets_OECD(
+    maindb,
+    main_ref,
+    linked_db,
+    link_ref,
+    column_to_get,      # base name, e.g. "source"
+    lookup_column,
+    lookup_value,
+    first_label_excel,  # label of first target cell
+    second_label_excel, # label of second target cell (same row as first)
+    max_suffix=5,       # how far to look for -1, -2, ... columns
+    include_resource=True
+):
+    """
+    Finds a row where both first_label_excel and second_label_excel are exact matches.
+    Uses the rightmost of those as the "second target" and writes values starting at
+    the first unmerged empty cell to its right.
+
+    To work with the function getting info from SQL database, the No data could not be left as an empty cell as was before
+    so it is written as "no data", however then the program to get the same looking template just has to skip it, not to
+    write "do data" twice
+    If second_label_excel == "No data" (case-insensitive):
+      - Skip writing the SQL values for column_to_get and its suffixes.
+      - Still write the SQL resource value (if available) into the Excel "Resource" column.
+    """
+    def sanitize_label(s: str) -> str:
+        s = (s or "").strip().lower()
+        s = s.replace(" ", "-")
+        s = re.sub(r"[^a-z0-9_\-]", "", s)
+        s = re.sub(r"-{2,}", "-", s)
+        return s or "unnamed"
+
+    try:
+        # 1) Get list of all columns in linked_db
+        pragma_sql = f"PRAGMA table_info([{linked_db}])"
+        cursor.execute(pragma_sql)
+        cols_info = cursor.fetchall()
+        all_cols = [row[1] for row in cols_info]
+
+        # 2) Collect base + suffix columns for the main data
+        matching_cols = []
+        if column_to_get in all_cols:
+            matching_cols.append(column_to_get)
+
+        for i in range(1, max_suffix + 1):
+            cand = f"{column_to_get}-{i}"
+            if cand in all_cols:
+                matching_cols.append(cand)
+
+        if not matching_cols:
+            print(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
+            return
+
+        # 3) Resource column in SQL: resource-<sanitized second_label_excel>
+        resource_sql_col = None
+        select_resource = False
+        if include_resource:
+            safe_label = sanitize_label(second_label_excel)
+            cand_res = f"resource-{safe_label}"
+            if cand_res in all_cols:
+                resource_sql_col = cand_res
+                select_resource = True
+
+        # 4) Build SELECT list
+        select_parts = [f"a.[{col}]" for col in matching_cols]
+        if select_resource:
+            select_parts.append(f"a.[{resource_sql_col}]")
+        select_list = ", ".join(select_parts)
+
+        query = f"""
+            SELECT {select_list}
+            FROM {linked_db} a
+            JOIN {maindb}  c ON a.{link_ref} = c.{main_ref}
+            WHERE c.{lookup_column} = ?
+            LIMIT 1
+        """
+
+        cursor.execute(query, (lookup_value,))
+        row = cursor.fetchone()
+        if not row:
+            print(f"No results found for {lookup_column} = {lookup_value}")
+            return
+
+        num_val_cols = len(matching_cols)
+        value_cols = row[:num_val_cols]
+        resource_val = row[num_val_cols] if select_resource else None
+
+        # Skipping no data: decide whether to skip writing the SQL values
+        skip_value_write = str(second_label_excel).strip().lower() == "no data"
+
+        # 5) Find a row where BOTH labels exist as exact cell matches
+        row_found = False
+        for excel_row in ws_template.iter_rows():
+            first_col_idx = None
+            second_col_idx = None
+
+            for cell in excel_row:
+                if isinstance(cell.value, str):
+                    cell_val = cell.value.strip()
+                    if cell_val == str(first_label_excel).strip():
+                        first_col_idx = cell.column
+                    elif cell_val == str(second_label_excel).strip():
+                        second_col_idx = cell.column
+
+            if first_col_idx is not None and second_col_idx is not None:
+                row_found = True
+                target_row = excel_row[0].row
+                second_target_col = max(first_col_idx, second_col_idx)
+
+                # 6) Find the first *unmerged* empty cell to the right
+                current_col = second_target_col + 1
+                while True:
+                    cell = ws_template.cell(row=target_row, column=current_col)
+
+                    # Skip merged cells (non top-left)
+                    if isinstance(cell, MergedCell):
+                        current_col += 1
+                        continue
+
+                    if cell.value in (None, ""):
+                        break
+
+                    current_col += 1
+
+                # 7) Write values, skipping merged/occupied cells
+                # Only write values if NOT "No data"
+                if not skip_value_write:
+                    for val in value_cols:
+                        if val in (None, ""):
+                            continue
+
+                        while True:
+                            cell = ws_template.cell(row=target_row, column=current_col)
+
+                            if isinstance(cell, MergedCell) or cell.value not in (None, ""):
+                                current_col += 1
+                                continue
+
+                            cell.value = val
+                            print(
+                                f"Inserted '{val}' into cell {cell.coordinate}"
+                            )
+                            current_col += 1
+                            break
+                else:
+                    print("Second label is 'No data' → skipping SQL values, but still handling resource if present.")
+
+                # 8) Put resource into Excel "Resource" column (header cell == 'Resource')
+                if include_resource and resource_val not in (None, ""):
+                    resource_col_idx = None
+                    for hdr_row in ws_template.iter_rows():
+                        for hdr_cell in hdr_row:
+                            if (
+                                isinstance(hdr_cell.value, str)
+                                and hdr_cell.value.strip().lower() == "resource"
+                            ):
+                                resource_col_idx = hdr_cell.column
+                                break
+                        if resource_col_idx is not None:
+                            break
+
+                    if resource_col_idx is not None:
+                        ws_template.cell(row=target_row, column=resource_col_idx).value = resource_val
+                        print(
+                            f"Inserted resource '{resource_val}' into cell "
+                            f"{ws_template.cell(row=target_row, column=resource_col_idx).coordinate}"
+                        )
+                    else:
+                        print("Could not find 'Resource' column in Excel to write resource value.")
+                break
+
+        if not row_found:
+            print(
+                f"No row found where both '{first_label_excel}' "
+                f"and '{second_label_excel}' are present as exact matches."
+            )
+
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
 
 
 ### Start with extracting
@@ -436,18 +785,26 @@ try:
     point_mut_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="POINTMUT",
                                                    link_ref="ref",
                                                    lookup_column="ID", lookup_value=CAS)
-    point_mut_names = remove_text_from_string(point_mut_names, "Point mutations:")
+    point_mut_names_cleared = remove_text_from_string(point_mut_names, "Point mutations:")
     #print(point_mut_names)
 
-    write_list_right_of_label(ws_template, "Point mutations:", 1, point_mut_names)
+    write_list_right_of_label(ws_template, "Point mutations:", 1, point_mut_names_cleared)
+
+    for namesDB, nameExcel in zip(point_mut_names, point_mut_names_cleared):
+        refdb_to_excel_source_after_two_targets_OECD(maindb="C2C_DATABASE", main_ref="ID", linked_db="POINTMUT", link_ref="ref",
+                                   column_to_get=namesDB, lookup_column="ID",lookup_value =CAS, first_label_excel="Point mutations:", second_label_excel=nameExcel, max_suffix=5, include_resource=True )
 
     # Chromosome damaging
     ch_dam_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="CHROMDAM",
                                                 link_ref="ref",
                                                 lookup_column="ID", lookup_value=CAS)
-    ch_dam_names = remove_text_from_string(ch_dam_names, "Chromosome damaging:")
+    ch_dam_names_cleared = remove_text_from_string(ch_dam_names, "Chromosome damaging:")
     #print(ch_dam_names)
-    write_list_right_of_label(ws_template, "Chromosome damaging:", 1, ch_dam_names)
+    write_list_right_of_label(ws_template, "Chromosome damaging:", 1, ch_dam_names_cleared)
+
+    for namesDB, nameExcel in zip(ch_dam_names, ch_dam_names_cleared):
+        refdb_to_excel_source_after_two_targets_OECD(maindb="C2C_DATABASE", main_ref="ID", linked_db="CHROMDAM", link_ref="ref",
+                                   column_to_get=namesDB, lookup_column="ID",lookup_value =CAS, first_label_excel="Chromosome damaging:", second_label_excel=nameExcel, max_suffix=5, include_resource=True )
 
 
     # REPROTOX
@@ -524,12 +881,33 @@ try:
                                              link_ref="ref",
                                              lookup_column="ID", lookup_value=CAS)
     # cleaning the names so there is only distinct SCL names
-    SCL_names = remove_text_from_string(SCL_names, " - Lower Limit: (%)")
-    SCL_names = remove_text_from_string(SCL_names, " - Upper Limit: (%)")
-    SCL_names_dist = list(dict.fromkeys(SCL_names))
+    SCL_names_clean = remove_text_from_string(SCL_names, " - Lower Limit: (%)")
+    SCL_names_clean = remove_text_from_string(SCL_names_clean, " - Upper Limit: (%)")
+    SCL_names_dist = list(dict.fromkeys(SCL_names_clean))
     #print(SCL_names_dist)
     write_list_right_of_label(ws_template, "Hazard classification:", 1, SCL_names_dist)
+    # # Lower limit
+    # choosing SQL with only Lower limit data
+    SCL_DB_names_lower = [s for s in SCL_names if "Lower Limit:" in s]
+    print(SCL_DB_names_lower)
+    SCL_EX_names_lower = remove_text_from_string(SCL_DB_names_lower, " - Lower Limit: (%)")
+    print(SCL_EX_names_lower)
+    # extracting Lower limit data
+    for namesDB, nameExcel in zip(SCL_DB_names_lower, SCL_EX_names_lower):
+        refdb_to_excel_source_after_two_targets(maindb="C2C_DATABASE", main_ref="ID", linked_db="SCONCLIM", link_ref="ref",
+                                   column_to_get=namesDB, lookup_column="ID",lookup_value =CAS, first_label_excel=nameExcel, second_label_excel="Lower Limit: (%)", max_suffix=5, include_resource=True )
 
+    # # Upper limit
+    # choosing SQL with only Lower limit data
+    SCL_DB_names_upper = [s for s in SCL_names if "Upper Limit:" in s]
+    SCL_EX_names_upper = remove_text_from_string(SCL_DB_names_upper, " - Upper Limit: (%)")
+    # extracting Lower limit data
+    for namesDB, nameExcel in zip(SCL_DB_names_upper, SCL_EX_names_upper):
+        refdb_to_excel_source_after_two_targets(maindb="C2C_DATABASE", main_ref="ID", linked_db="SCONCLIM",
+                                                link_ref="ref",
+                                                column_to_get=namesDB, lookup_column="ID", lookup_value=CAS,
+                                                first_label_excel=nameExcel, second_label_excel="Upper Limit: (%)",
+                                                max_suffix=5, include_resource=True)
 
     # AQUATIC TOXICITY
 

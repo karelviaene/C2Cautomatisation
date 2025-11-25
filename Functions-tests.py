@@ -1057,6 +1057,7 @@ try:
 
     point_mut_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="POINTMUT", link_ref="ref",
                                      lookup_column="ID", lookup_value=CAS)
+    print(point_mut_names)
     point_mut_names= remove_text_from_string(point_mut_names, "Point mutations:")
     print(point_mut_names)
 
@@ -1984,3 +1985,181 @@ except sqlite3.Error as e:
 #         print(f"Label '{label_excel}' not found in worksheet.")
 #     except sqlite3.Error as e:
 #         print("SQLite error:", e)
+
+#
+# def add_info_right_two_markers_OECD_old(sheet, label1: str, label2: str, maindatabase, newdatabase, mainID, include_resource: bool = True):
+#     """
+#     label 1 - first row to match
+#     label 2 - second row to match
+#     1) Find a row where two adjacent cells match (label1, label2) left→right.
+#     2) Capture first non-empty cell to the right of label2.
+#     3) Write to SQL columns named: {label1}{label2}
+#
+#     Optional behavior (when include_resource=True):
+#       - Captures the sheet's 'Resource' column value (if present and not empty)
+#         into SQL column 'resource-<sanitized label2>' for the same row.
+#       - If no 'Resource' column exists or the cell is empty, skips creating that column.
+#     """
+#
+#     # --- helpers ---
+#     def q(name: str) -> str:
+#         return f'"{name}"'
+#
+#     def matches(val, needle: str) -> bool:
+#         if val is None:
+#             return False
+#         return needle.lower() in str(val).lower()
+#
+#     # Sanitize label for safe SQL column naming (for resource column)
+#     def sanitize_label(s: str) -> str:
+#         s = (s or "").strip().lower()
+#         s = s.replace(" ", "-")
+#         s = re.sub(r"[^a-z0-9_\-]", "", s)
+#         s = re.sub(r"-{2,}", "-", s)
+#         return s or "unnamed"
+#
+#     max_row = sheet.max_row
+#     max_col = sheet.max_column
+#
+#     safe_label2 = sanitize_label(label2)
+#     resource_colname = f"resource-{safe_label2}"
+#
+#     # --- 1) Find target row via adjacent (label1, label2) ---
+#     target_row = None
+#     for r in range(1, max_row + 1):
+#         for c in range(1, max_col):  # up to max_col-1 because we check c and c+1
+#             v1 = sheet.cell(row=r, column=c).value
+#             v2 = sheet.cell(row=r, column=c + 1).value
+#             if matches(v1, label1) and matches(v2, label2):
+#                 target_row = r
+#                 break
+#         if target_row is not None:
+#             #print("Target row:", target_row)
+#             break
+#
+#     if target_row is None:
+#         print("Target row not found")
+#         return  # no matching row → nothing to insert
+#
+#     # --- Optionally find the column index for "Resource" ---
+#     resource_col = None
+#     if include_resource:
+#         for row in sheet.iter_rows():
+#             for cell in row:
+#                 if cell.value and str(cell.value).strip().lower() == "resource":
+#                     resource_col = getattr(cell, "col_idx", cell.column)
+#                     break
+#             if resource_col:
+#                 break
+#
+#     # --- 2) Scan the row to find targets; capture right-hand values ---
+#     extracted_data = {}
+#
+#     # label → col name
+#     col_name = f"{label1}{label2}"
+#
+#     # move to look for the first value to the right
+#     def capture_right_of_label(row: int, label: str):
+#         # Find the column containing the label
+#         for c in range(1, max_col):
+#             cell_value = sheet.cell(row=row, column=c).value
+#             if matches(cell_value, label):
+#
+#                 # Start searching to the right of this column
+#                 for cc in range(c + 1, max_col + 1):
+#                     right_val = sheet.cell(row=row, column=cc).value
+#
+#                     # Skip empty or whitespace-only
+#                     if right_val is None:
+#                         continue
+#
+#                     if isinstance(right_val, str):
+#                         rv = right_val.strip()
+#                         if rv == "":
+#                             continue
+#                         return rv  # return first non-empty string
+#
+#                     # Non-string, non-None → return immediately
+#                     return right_val
+#
+#                 # If no value was found to the right
+#                 return None
+#
+#         # Label not found at all
+#         return None
+#
+#     val = capture_right_of_label(target_row, label2)
+#     #print("Val", val)
+#
+#     if val is not None:
+#         extracted_data[col_name] = val
+#
+#     # Optionally add the Resource value, but only if it's not empty
+#     if include_resource and resource_col:
+#         resource_value = sheet.cell(row=target_row, column=resource_col).value
+#         if resource_value is not None and (not isinstance(resource_value, str) or resource_value.strip() != ""):
+#             extracted_data[resource_colname] = resource_value
+#
+#     if not extracted_data:
+#         print("Target extracted not found")
+#         return  # nothing to insert
+#
+#     # --- 3) Ensure table/columns exist ---
+#     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (newdatabase,))
+#     table_exists = cursor.fetchone()
+#
+#     needed_columns = list(extracted_data.keys())
+#
+#     if not table_exists:
+#         cols_def = ", ".join([f"{q(col)} TEXT" for col in needed_columns])
+#         fk_clause = f", FOREIGN KEY (ref) REFERENCES {q(maindatabase)}(ID)" if newdatabase != maindatabase else ""
+#         cursor.execute(f'''
+#             CREATE TABLE {q(newdatabase)} (
+#                 ID INTEGER PRIMARY KEY AUTOINCREMENT,
+#                 ref TEXT
+#                 {"," if cols_def else ""} {cols_def}
+#                 {fk_clause}
+#             )
+#         ''')
+#     else:
+#         cursor.execute(f"PRAGMA table_info({q(newdatabase)})")
+#         existing_cols = [col[1] for col in cursor.fetchall()]
+#         if "ref" not in existing_cols and newdatabase != maindatabase:
+#             cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN ref TEXT")
+#         for col in needed_columns:
+#             if col not in existing_cols:
+#                 cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
+#
+#     # --- 4) Upsert (same rules as your working pattern) ---
+#     if newdatabase != maindatabase:
+#         cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
+#         exists = cursor.fetchone()
+#         if exists:
+#             set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
+#             cursor.execute(
+#                 f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ref = ?",
+#                 list(extracted_data.values()) + [mainID]
+#             )
+#         else:
+#             cols = ["ref"] + list(extracted_data.keys())
+#             placeholders = ", ".join(["?"] * len(cols))
+#             cursor.execute(
+#                 f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
+#                 [mainID] + list(extracted_data.values())
+#             )
+#     else:
+#         cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?", (mainID,))
+#         exists = cursor.fetchone()
+#         if exists:
+#             set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
+#             cursor.execute(
+#                 f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ID = ?",
+#                 list(extracted_data.values()) + [mainID]
+#             )
+#         else:
+#             cols = ["ID"] + list(extracted_data.keys())
+#             placeholders = ", ".join(["?"] * len(cols))
+#             cursor.execute(
+#                 f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
+#                 [mainID] + list(extracted_data.values())
+#             )
