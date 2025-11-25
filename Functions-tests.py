@@ -879,11 +879,7 @@ def refdb_to_pandas_multi(
         return pd.DataFrame(columns=columns_to_get)
 
 
-def refdb_to_pandas_all(
-    maindb, main_ref,
-    linked_db, link_ref,
-    lookup_column, lookup_value
-):
+def refdb_to_column_names_unique(maindb, main_ref,linked_db, link_ref,lookup_column, lookup_value):
     """
     Returns ALL columns from `linked_db` for rows matched through the join
     with `maindb` where maindb.lookup_column == lookup_value.
@@ -911,12 +907,27 @@ def refdb_to_pandas_all(
         # Extract column names automatically from cursor.description
         colnames = [desc[0] for desc in cursor.description]
 
-        return pd.DataFrame(rows, columns=colnames)
+        dataframe = pd.DataFrame(rows, columns=colnames)
+
+        # cutting columns with NULL values
+        dataframe_cut = dataframe.dropna(axis=1, how='all')
+        # dropping columns with ID and ref (not needed here)
+        dataframe_cut = dataframe_cut.drop(columns=["ID", 'ref'])
+        column_name = list(dataframe_cut.columns)
+        # takes away from the string the resources names
+        result = [c_name for c_name in column_name if "resource" not in c_name.lower() ]
+        return result
 
     except sqlite3.Error as e:
         print("SQLite error:", e)
         return pd.DataFrame()
 
+def remove_text_from_string(string, target_name):
+    result = []
+    for s in string:
+        name = s.replace(target_name, "").strip()
+        result.append(name)
+    return result
 
 def fill_right_multiple_below_name(ws_template, target_name, values_string, label_excel,
                                    delimiter=",", allow_contains_label=True):
@@ -1034,17 +1045,36 @@ try:
     #print(SCL_df_1_1)
 
 
-    SCL_all_df = refdb_to_pandas_all(maindb="C2C_DATABASE", main_ref="ID", linked_db="SCONCLIM", link_ref="ref", lookup_column="ID",lookup_value =CAS)
-    #print(SCL_all_df)
-    #cutting columns with NULL values
-    SCL_adjust_df = SCL_all_df.dropna(axis=1, how='all')
-    #dropping columns with ID and ref (not needed here)
-    SCL_adjust_df = SCL_adjust_df.drop(columns=["ID",'ref'])
-    #print(SCL_adjust_df)
-    names = list(SCL_adjust_df.columns)
-    print(names)
+    # SCL_all_df = refdb_to_pandas_all(maindb="C2C_DATABASE", main_ref="ID", linked_db="SCONCLIM", link_ref="ref", lookup_column="ID",lookup_value =CAS)
+    # #print(SCL_all_df)
+    # #cutting columns with NULL values
+    # SCL_adjust_df = SCL_all_df.dropna(axis=1, how='all')
+    # #dropping columns with ID and ref (not needed here)
+    # SCL_adjust_df = SCL_adjust_df.drop(columns=["ID",'ref'])
+    # #print(SCL_adjust_df)
+    # names = list(SCL_adjust_df.columns)
+    # print(names)
 
-    fill_right_multiple_below_name(template_wb, "Hazard classification:", names,"Hazard classification:" )
+    point_mut_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="POINTMUT", link_ref="ref",
+                                     lookup_column="ID", lookup_value=CAS)
+    point_mut_names= remove_text_from_string(point_mut_names, "Point mutations:")
+    print(point_mut_names)
+
+    ch_dam_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="CHROMDAM",
+                                                   link_ref="ref",
+                                                   lookup_column="ID", lookup_value=CAS)
+    ch_dam_names = remove_text_from_string(ch_dam_names, "Chromosome damaging:")
+    print(ch_dam_names)
+
+    SCL_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="SCONCLIM",
+                                                link_ref="ref",
+                                                lookup_column="ID", lookup_value=CAS)
+    SCL_names = remove_text_from_string(SCL_names, " - Lower Limit: (%)")
+    SCL_names = remove_text_from_string(SCL_names, " - Upper Limit: (%)")
+    SCL_names_dist = list(dict.fromkeys(SCL_names))
+    print(SCL_names_dist)
+
+    #fill_right_multiple_below_name(template_wb, "Hazard classification:", names,"Hazard classification:" )
 
 
 

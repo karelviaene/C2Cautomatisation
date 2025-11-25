@@ -6,6 +6,7 @@ import os
 import re
 import pandas as pd
 from datetime import datetime
+from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl import load_workbook
 
 # Define the path to your SQLite database file
@@ -253,7 +254,114 @@ def refdb_to_excel_source_right(
     except sqlite3.Error as e:
         print("SQLite error:", e)
 
+def refdb_to_column_names_unique(maindb, main_ref,linked_db, link_ref,lookup_column, lookup_value):
+    """
+    Returns a string with column names unique for each CAS, as a string
+    """
 
+    try:
+        # Query EVERYTHING (*) from linked_db
+        query = f"""
+            SELECT a.*
+            FROM {linked_db} a
+            JOIN {maindb} c ON a.{link_ref} = c.{main_ref}
+            WHERE c.{lookup_column} = ?
+        """
+
+        cursor.execute(query, (lookup_value,))
+        rows = cursor.fetchall()
+
+        # If nothing found → return empty DataFrame (still safe)
+        if not rows:
+            print(f"No results found for {lookup_column} = {lookup_value}")
+            return pd.DataFrame()
+
+        # Extract column names automatically from cursor.description
+        colnames = [desc[0] for desc in cursor.description]
+
+        dataframe = pd.DataFrame(rows, columns=colnames)
+
+        # cutting columns with NULL values
+        dataframe_cut = dataframe.dropna(axis=1, how='all')
+        # dropping columns with ID and ref (not needed here)
+        dataframe_cut = dataframe_cut.drop(columns=["ID", 'ref'])
+        column_name = list(dataframe_cut.columns)
+        # takes away from the string the resources names
+        result = [c_name for c_name in column_name if "resource" not in c_name.lower() ]
+        return result
+
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
+        return pd.DataFrame()
+
+def remove_text_from_string(string, target_name):
+    '''removes text from string, used for Muta tests and SCL'''
+    result = []
+    for s in string:
+        name = s.replace(target_name, "").strip()
+        result.append(name)
+    return result
+
+
+
+def write_list_right_of_label(ws_template: Worksheet, label_excel: str, offset: int, values_list: list):
+    """
+    Find the first cell whose value EXACTLY matches 'label_excel'
+    (after stripping whitespace, case-insensitive),
+    then write values from values_list to the right, moving downwards
+    as long as the label cell below also exactly matches the label.
+    """
+
+    if not values_list:
+        print("Value list is empty — nothing to write.")
+        return
+
+    # Normalize the target label once
+    normalized_label = label_excel.strip().lower()
+
+    # 1) Find the first exact match
+    label_cell = None
+    for row in ws_template.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.strip().lower() == normalized_label:
+                label_cell = cell
+                break
+        if label_cell:
+            break
+
+    if not label_cell:
+        print(f"Exact label '{label_excel}' not found.")
+        return
+
+    start_row = label_cell.row
+    label_col = label_cell.column
+    target_col = label_col + offset
+    max_row = ws_template.max_row
+
+    current_row = start_row
+    value_index = 0
+
+    # 2) Write downward while exact match continues
+    while value_index < len(values_list) and current_row <= max_row:
+        current_cell_value = ws_template.cell(row=current_row, column=label_col).value
+
+        # Check if current row still has EXACT match
+        if not isinstance(current_cell_value, str) or \
+           current_cell_value.strip().lower() != normalized_label:
+            break
+
+        ws_template.cell(row=current_row, column=target_col).value = values_list[value_index]
+
+        print(
+            f"Inserted '{values_list[value_index]}' into "
+            f"{ws_template.cell(row=current_row, column=target_col).coordinate}"
+        )
+
+        value_index += 1
+        current_row += 1
+
+    if value_index < len(values_list):
+        print(f"Warning: {len(values_list) - value_index} values not written — no more exact matching label rows.")
 
 
 ### Start with extracting
@@ -324,8 +432,22 @@ try:
         refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="MUTAGENICITY", link_ref="ref",
                                column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # MUTAGENICITY OECD TESTS
+    #Point mutations
+    point_mut_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="POINTMUT",
+                                                   link_ref="ref",
+                                                   lookup_column="ID", lookup_value=CAS)
+    point_mut_names = remove_text_from_string(point_mut_names, "Point mutations:")
+    #print(point_mut_names)
 
-    # To be filled later
+    write_list_right_of_label(ws_template, "Point mutations:", 1, point_mut_names)
+
+    # Chromosome damaging
+    ch_dam_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="CHROMDAM",
+                                                link_ref="ref",
+                                                lookup_column="ID", lookup_value=CAS)
+    ch_dam_names = remove_text_from_string(ch_dam_names, "Chromosome damaging:")
+    #print(ch_dam_names)
+    write_list_right_of_label(ws_template, "Chromosome damaging:", 1, ch_dam_names)
 
 
     # REPROTOX
@@ -398,7 +520,16 @@ try:
         refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="SENSITISATION", link_ref="ref",
                                column_to_get=namesDBcol, lookup_column="ID",lookup_value =CAS, label_excel=nameExcel,offset=1)
     # SPECIFIC CONCENTRATION LIMITS
-    # CODE TO BE ADDED: PROBABLY A NEW FUNCTION NEEDED:)
+    SCL_names = refdb_to_column_names_unique(maindb="C2C_DATABASE", main_ref="ID", linked_db="SCONCLIM",
+                                             link_ref="ref",
+                                             lookup_column="ID", lookup_value=CAS)
+    # cleaning the names so there is only distinct SCL names
+    SCL_names = remove_text_from_string(SCL_names, " - Lower Limit: (%)")
+    SCL_names = remove_text_from_string(SCL_names, " - Upper Limit: (%)")
+    SCL_names_dist = list(dict.fromkeys(SCL_names))
+    #print(SCL_names_dist)
+    write_list_right_of_label(ws_template, "Hazard classification:", 1, SCL_names_dist)
+
 
     # AQUATIC TOXICITY
 
