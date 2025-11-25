@@ -4,9 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="C2C: OECD tests sorted out with different tables">
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="C2C: all template is exported">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Functions-tests.py" beforeDir="false" afterPath="$PROJECT_DIR$/Functions-tests.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -207,7 +207,23 @@
       <option name="project" value="LOCAL" />
       <updated>1763987473123</updated>
     </task>
-    <option name="localTasksCounter" value="16" />
+    <task id="LOCAL-00016" summary="C2C: OECD and SCL names put in excel">
+      <option name="closed" value="true" />
+      <created>1764068797736</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1764068797736</updated>
+    </task>
+    <task id="LOCAL-00017" summary="C2C: all template is exported">
+      <option name="closed" value="true" />
+      <created>1764075026559</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1764075026559</updated>
+    </task>
+    <option name="localTasksCounter" value="18" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -223,7 +239,9 @@
     <MESSAGE value="Working on C2C extraction info for excel" />
     <MESSAGE value="C2C filling the excel: all that can be filled with the right function are in" />
     <MESSAGE value="C2C: OECD tests sorted out with different tables" />
-    <option name="LAST_COMMIT_MESSAGE" value="C2C: OECD tests sorted out with different tables" />
+    <MESSAGE value="C2C: OECD and SCL names put in excel" />
+    <MESSAGE value="C2C: all template is exported" />
+    <option name="LAST_COMMIT_MESSAGE" value="C2C: all template is exported" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
