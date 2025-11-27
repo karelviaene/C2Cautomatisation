@@ -9,217 +9,281 @@ from openpyxl import load_workbook
 from copy import copy
 from openpyxl.worksheet.cell_range import CellRange
 from openpyxl import Workbook, load_workbook
+from openpyxl.writer.excel import save_workbook
 import os
 from datetime import date
 
-filepath = "/Users/juliakulpa/Desktop/Test_excel_imports/Testing/Test CPS_CAS 10-00-0.xlsm"
+filepath = "/Users/juliakulpa/Desktop/Test_excel_imports/Testing/Test CPS_CAS ABS.xlsm"
 template_path = "/Users/juliakulpa/Desktop/Test_excel_imports/Template/CPS_CAS TEMPLATE V2.xlsm"
 
-def put_template_into_CPS(filepath,template_path):
-    '''Puts the template into the CPS excel that exists or creates a new one'''
-    def open_or_create_xlsm(filepath):
-        """
-        Opens an existing .xlsm file with macros preserved.
-        If it doesn't exist, creates a new one.
-        Returns the workbook object.
-        """
-        if os.path.exists(filepath):
-            # Load workbook and preserve macros
-            wb = load_workbook(filepath, keep_vba=True)
-            print(f"Opened existing file: {filepath}")
-        else:
-            # Create new workbook and save as xlsm
-            wb = Workbook()
-            wb.save(filepath)
-            print(f"Created new xlsm file: {filepath}")
-        return wb
+if not os.path.exists(filepath):
+    print(f"Creating new CAS excel file: {filepath}")
+    template_wb = load_workbook(template_path, read_only=False, keep_vba=True)
+    ws_template = template_wb["C2Coverview"]
+    template_wb.save(filepath)
 
-    def add_new_sheet(filepath, new_sheet_name):
-        """
-        Opens (or creates) an xlsm file and adds a new sheet.
-        Saves the file afterwards.
-        """
-        wb = open_or_create_xlsm(filepath)
+else: print(f"CAS excel file: {filepath} already exists")
 
-        # If sheet already exists, create a unique name
-        if new_sheet_name in wb.sheetnames:
-            base = new_sheet_name
-            i = 1
-            while f"{base}_{i}" in wb.sheetnames:
-                i += 1
-            new_sheet_name = f"{base}_{i}"
+# filename = f"Test CPS_CAS 10-00.xlsm"
+#
+# wb = Workbook()
+# wb.save(filepath)
+# wb2 = load_workbook(filepath, keep_vba=True)
+# wb2.save(filepath)
 
-        # Create the sheet as first sheet
-        ws = wb.create_sheet(new_sheet_name, 0)
+# def open_or_create_xlsm(filepath):
+#     """
+#     Opens an existing .xlsm file with macros preserved.
+#     If it doesn't exist, creates a new one.
+#     Returns the workbook object.
+#     """
+#     if os.path.exists(filepath):
+#         # Load workbook and preserve macros
+#         wb = load_workbook(filepath, keep_vba=True)
+#         print(f"Opened existing file: {filepath}")
+#     else:
+#         # Create new workbook and save as xlsm
+#         wb = Workbook()
+#         wb.save(filepath)
+#         print(f"Created new xlsm file: {filepath}")
+#     return wb
 
-        wb.save(filepath)
-        print(f"Added sheet '{new_sheet_name}' to {filepath}")
+#
+# def open_or_create_xlsm(filepath):
+#     """
+#     Opens an existing .xlsm file with macros preserved.
+#     If it doesn't exist, creates a new one.
+#     Returns the workbook object.
+#     """
+#     # Safety check: Ensure extension is .xlsm
+#     if not filepath.lower().endswith(".xlsm"):
+#         print(f"ERROR: Expected an .xlsm file, but got: {filepath}")
+#         return None
+#
+#     if os.path.exists(filepath):
+#         # Load workbook and preserve macros
+#         wb = load_workbook(filepath, keep_vba=True)
+#         print(f"Opened existing file: {filepath}")
+#     else:
+#         # Create new workbook and save as xlsm
+#         wb = Workbook()
+#         wb.save(filepath)
+#         wb2 = load_workbook(filepath, keep_vba=True)
+#         wb2.save(filepath)
+#         print(f"Created new xlsm file: {filepath}")
+#     return wb
+#
+# open_or_create_xlsm(filepath)
 
-        return ws
+# def put_template_into_CPS(filepath,template_path):
+#     '''Puts the template into the CPS excel that exists or creates a new one'''
+#     def open_or_create_xlsm(filepath):
+#         """
+#         Opens an existing .xlsm file with macros preserved.
+#         If it doesn't exist, creates a new one.
+#         Returns the workbook object.
+#         """
+#         if os.path.exists(filepath):
+#             # Load workbook and preserve macros
+#             wb = load_workbook(filepath, keep_vba=True)
+#             print(f"Opened existing file: {filepath}")
+#         else:
+#             # Create new workbook and save as xlsm
+#             wb = Workbook()
+#             wb.save(filepath)
+#             print(f"Created new xlsm file: {filepath}")
+#         return wb
+#
+#     def add_new_sheet(filepath, new_sheet_name):
+#         """
+#         Opens (or creates) an xlsm file and adds a new sheet.
+#         Saves the file afterwards.
+#         """
+#         wb = open_or_create_xlsm(filepath)
+#
+#         # If sheet already exists, create a unique name
+#         if new_sheet_name in wb.sheetnames:
+#             base = new_sheet_name
+#             i = 1
+#             while f"{base}_{i}" in wb.sheetnames:
+#                 i += 1
+#             new_sheet_name = f"{base}_{i}"
+#
+#         # Create the sheet as first sheet
+#         ws = wb.create_sheet(new_sheet_name, 0)
+#
+#         wb.save(filepath)
+#         print(f"Added sheet '{new_sheet_name}' to {filepath}")
+#
+#         return ws
+#
+#     def rename_with_date_and_move_to_back(filepath, sheet_name, date_format="%Y_%m_%d"):
+#         """
+#         Renames 'sheet_name' to 'sheet_name_YYYY_MM_DD'
+#         and moves it to the back of the workbook.
+#         """
+#         # Load workbook safely
+#         if filepath.lower().endswith(".xlsm"):
+#             wb = load_workbook(filepath, keep_vba=True)
+#         else:
+#             wb = load_workbook(filepath)
+#
+#         # Ensure sheet exists
+#         if sheet_name not in wb.sheetnames:
+#             raise ValueError(f"Sheet '{sheet_name}' does not exist in workbook.")
+#
+#         ws = wb[sheet_name]
+#
+#         # Create date suffix
+#         date_str = datetime.now().strftime(date_format)
+#
+#         # Build new name
+#         new_name = f"{sheet_name}_{date_str}"
+#
+#         # Apply the new title
+#         ws.title = new_name
+#
+#         # Move to the back
+#         wb._sheets.remove(ws)
+#         wb._sheets.append(ws)
+#
+#         # Save file
+#         wb.save(filepath)
+#
+#         print(f"Renamed '{sheet_name}' → '{new_name}' and moved to back.")
+#
+#     def load_wb_any(path):
+#         """Load xlsx/xlsm, preserving VBA if present."""
+#         if path.lower().endswith(".xlsm"):
+#             return load_workbook(path, keep_vba=True)
+#         return load_workbook(path)
+#
+#     def copy_sheet_to_other_workbook(
+#             src_path,
+#             src_sheet_name,
+#             dest_path,
+#             dest_sheet_name
+#     ):
+#         """
+#         Copy sheet `src_sheet_name` from src_path into dest_path
+#         as a new sheet called `dest_sheet_name`.
+#
+#         Copies:
+#           - cell values
+#           - styles
+#           - merged cells
+#           - column widths
+#           - row heights
+#           - existing data validation (drop-down menus)
+#           - existing conditional formatting that applies to column I
+#         """
+#
+#         # --- Load source workbook ---
+#         if not os.path.exists(src_path):
+#             raise FileNotFoundError(f"Source file not found: {src_path}")
+#         src_wb = load_wb_any(src_path)
+#
+#         if src_sheet_name not in src_wb.sheetnames:
+#             raise ValueError(f"Sheet '{src_sheet_name}' not found in source workbook.")
+#
+#         src_ws = src_wb[src_sheet_name]
+#
+#         # --- Load or create destination workbook ---
+#         if os.path.exists(dest_path):
+#             dest_wb = load_wb_any(dest_path)
+#         else:
+#             from openpyxl import Workbook
+#             dest_wb = Workbook()
+#             # Clear the default sheet
+#             default_sheet = dest_wb.active
+#             dest_wb.remove(default_sheet)
+#
+#         # If sheet with that name already exists in dest, remove it or rename first
+#         if dest_sheet_name in dest_wb.sheetnames:
+#             dest_wb.remove(dest_wb[dest_sheet_name])
+#
+#         # Create destination sheet (as first sheet)
+#         dest_ws = dest_wb.create_sheet(title=dest_sheet_name, index=0)
+#
+#         # --- Copy column dimensions (width, hidden, etc.) ---
+#         for col_letter, col_dim in src_ws.column_dimensions.items():
+#             new_dim = dest_ws.column_dimensions[col_letter]
+#             new_dim.width = col_dim.width
+#             new_dim.hidden = col_dim.hidden
+#             new_dim.outlineLevel = col_dim.outlineLevel
+#             new_dim.bestFit = col_dim.bestFit
+#
+#         # --- Copy row dimensions (height, hidden, etc.) ---
+#         for row_idx, row_dim in src_ws.row_dimensions.items():
+#             new_row_dim = dest_ws.row_dimensions[row_idx]
+#             new_row_dim.height = row_dim.height
+#             new_row_dim.hidden = row_dim.hidden
+#             new_row_dim.outlineLevel = row_dim.outlineLevel
+#
+#         # --- Copy cell values and styles ---
+#         for row in src_ws.iter_rows():
+#             for cell in row:
+#                 dest_cell = dest_ws.cell(row=cell.row, column=cell.column, value=cell.value)
+#
+#                 if cell.has_style:
+#                     dest_cell._style = copy(cell._style)
+#
+#                 dest_cell.data_type = cell.data_type
+#                 dest_cell.number_format = cell.number_format
+#                 dest_cell.protection = copy(cell.protection)
+#                 dest_cell.alignment = copy(cell.alignment)
+#
+#         # --- Copy merged cells ---
+#         if src_ws.merged_cells.ranges:
+#             for merged_range in src_ws.merged_cells.ranges:
+#                 dest_ws.merge_cells(str(merged_range.coord))
+#
+#         # --- Copy existing data validation (drop-down menus) ---
+#         if src_ws.data_validations is not None:
+#             for dv in src_ws.data_validations.dataValidation:
+#                 new_dv = copy(dv)
+#                 dest_ws.add_data_validation(new_dv)
+#
+#         # --- Copy conditional formatting only for column I ---
+#         col_I_idx = 9  # column I
+#
+#         # Iterate internal CF structures similar to the SO snippet
+#         for cf in src_ws.conditional_formatting._cf_rules:
+#             for rng in cf.cells.ranges:
+#                 cr = CellRange(rng.coord)
+#
+#                 # If the CF range covers column I
+#                 if cr.min_col <= col_I_idx <= cr.max_col:
+#                     # Intersect with column I: keep row range, force column I
+#                     dst_range = f"I{cr.min_row}:I{cr.max_row}"
+#
+#                     for rule in cf.cfRule:
+#                         dest_ws.conditional_formatting.add(dst_range, copy(rule))
+#
+#         # --- Save destination workbook ---
+#         dest_wb.save(dest_path)
+#         print(
+#             f"Copied sheet '{src_sheet_name}' from '{src_path}' "
+#             f"to '{dest_path}' as '{dest_sheet_name}' "
+#             f"(with data validation + CF for column I)."
+#         )
+#
+#     # move the old C2C to the back and add a new C2C sheet in the front
+#     rename_with_date_and_move_to_back(filepath, "C2Coverview")
+#     add_new_sheet(filepath, "C2Coverview")
+#     #copy the template from the template
+#     copy_sheet_to_other_workbook(
+#         src_path=template_path,
+#         src_sheet_name="C2Coverview",
+#         dest_path=filepath,
+#         dest_sheet_name="C2Coverview"
+#     )
+#
+# put_template_into_CPS(filepath,template_path)
 
-    def rename_with_date_and_move_to_back(filepath, sheet_name, date_format="%Y_%m_%d"):
-        """
-        Renames 'sheet_name' to 'sheet_name_YYYY_MM_DD'
-        and moves it to the back of the workbook.
-        """
-        # Load workbook safely
-        if filepath.lower().endswith(".xlsm"):
-            wb = load_workbook(filepath, keep_vba=True)
-        else:
-            wb = load_workbook(filepath)
 
-        # Ensure sheet exists
-        if sheet_name not in wb.sheetnames:
-            raise ValueError(f"Sheet '{sheet_name}' does not exist in workbook.")
 
-        ws = wb[sheet_name]
 
-        # Create date suffix
-        date_str = datetime.now().strftime(date_format)
-
-        # Build new name
-        new_name = f"{sheet_name}_{date_str}"
-
-        # Apply the new title
-        ws.title = new_name
-
-        # Move to the back
-        wb._sheets.remove(ws)
-        wb._sheets.append(ws)
-
-        # Save file
-        wb.save(filepath)
-
-        print(f"Renamed '{sheet_name}' → '{new_name}' and moved to back.")
-
-    def load_wb_any(path):
-        """Load xlsx/xlsm, preserving VBA if present."""
-        if path.lower().endswith(".xlsm"):
-            return load_workbook(path, keep_vba=True)
-        return load_workbook(path)
-
-    def copy_sheet_to_other_workbook(
-            src_path,
-            src_sheet_name,
-            dest_path,
-            dest_sheet_name
-    ):
-        """
-        Copy sheet `src_sheet_name` from src_path into dest_path
-        as a new sheet called `dest_sheet_name`.
-
-        Copies:
-          - cell values
-          - styles
-          - merged cells
-          - column widths
-          - row heights
-          - existing data validation (drop-down menus)
-          - existing conditional formatting that applies to column I
-        """
-
-        # --- Load source workbook ---
-        if not os.path.exists(src_path):
-            raise FileNotFoundError(f"Source file not found: {src_path}")
-        src_wb = load_wb_any(src_path)
-
-        if src_sheet_name not in src_wb.sheetnames:
-            raise ValueError(f"Sheet '{src_sheet_name}' not found in source workbook.")
-
-        src_ws = src_wb[src_sheet_name]
-
-        # --- Load or create destination workbook ---
-        if os.path.exists(dest_path):
-            dest_wb = load_wb_any(dest_path)
-        else:
-            from openpyxl import Workbook
-            dest_wb = Workbook()
-            # Clear the default sheet
-            default_sheet = dest_wb.active
-            dest_wb.remove(default_sheet)
-
-        # If sheet with that name already exists in dest, remove it or rename first
-        if dest_sheet_name in dest_wb.sheetnames:
-            dest_wb.remove(dest_wb[dest_sheet_name])
-
-        # Create destination sheet (as first sheet)
-        dest_ws = dest_wb.create_sheet(title=dest_sheet_name, index=0)
-
-        # --- Copy column dimensions (width, hidden, etc.) ---
-        for col_letter, col_dim in src_ws.column_dimensions.items():
-            new_dim = dest_ws.column_dimensions[col_letter]
-            new_dim.width = col_dim.width
-            new_dim.hidden = col_dim.hidden
-            new_dim.outlineLevel = col_dim.outlineLevel
-            new_dim.bestFit = col_dim.bestFit
-
-        # --- Copy row dimensions (height, hidden, etc.) ---
-        for row_idx, row_dim in src_ws.row_dimensions.items():
-            new_row_dim = dest_ws.row_dimensions[row_idx]
-            new_row_dim.height = row_dim.height
-            new_row_dim.hidden = row_dim.hidden
-            new_row_dim.outlineLevel = row_dim.outlineLevel
-
-        # --- Copy cell values and styles ---
-        for row in src_ws.iter_rows():
-            for cell in row:
-                dest_cell = dest_ws.cell(row=cell.row, column=cell.column, value=cell.value)
-
-                if cell.has_style:
-                    dest_cell._style = copy(cell._style)
-
-                dest_cell.data_type = cell.data_type
-                dest_cell.number_format = cell.number_format
-                dest_cell.protection = copy(cell.protection)
-                dest_cell.alignment = copy(cell.alignment)
-
-        # --- Copy merged cells ---
-        if src_ws.merged_cells.ranges:
-            for merged_range in src_ws.merged_cells.ranges:
-                dest_ws.merge_cells(str(merged_range.coord))
-
-        # --- Copy existing data validation (drop-down menus) ---
-        if src_ws.data_validations is not None:
-            for dv in src_ws.data_validations.dataValidation:
-                new_dv = copy(dv)
-                dest_ws.add_data_validation(new_dv)
-
-        # --- Copy conditional formatting only for column I ---
-        col_I_idx = 9  # column I
-
-        # Iterate internal CF structures similar to the SO snippet
-        for cf in src_ws.conditional_formatting._cf_rules:
-            for rng in cf.cells.ranges:
-                cr = CellRange(rng.coord)
-
-                # If the CF range covers column I
-                if cr.min_col <= col_I_idx <= cr.max_col:
-                    # Intersect with column I: keep row range, force column I
-                    dst_range = f"I{cr.min_row}:I{cr.max_row}"
-
-                    for rule in cf.cfRule:
-                        dest_ws.conditional_formatting.add(dst_range, copy(rule))
-
-        # --- Save destination workbook ---
-        dest_wb.save(dest_path)
-        print(
-            f"Copied sheet '{src_sheet_name}' from '{src_path}' "
-            f"to '{dest_path}' as '{dest_sheet_name}' "
-            f"(with data validation + CF for column I)."
-        )
-
-    # move the old C2C to the back and add a new C2C sheet in the front
-    rename_with_date_and_move_to_back(filepath, "C2Coverview")
-    add_new_sheet(filepath, "C2Coverview")
-    #copy the template from the template
-    copy_sheet_to_other_workbook(
-        src_path=template_path,
-        src_sheet_name="C2Coverview",
-        dest_path=filepath,
-        dest_sheet_name="C2Coverview"
-    )
-
-put_template_into_CPS(filepath,template_path)
 # copy_sheet_between_workbooks(
 #     src_file="/Users/juliakulpa/Desktop/Test_excel_imports/Template/CPS_CAS TEMPLATE V2.xlsm",
 #     dst_file="/Users/juliakulpa/Desktop/Test_excel_imports/Testing/Test CPS_CAS 10-00-0.xlsm",

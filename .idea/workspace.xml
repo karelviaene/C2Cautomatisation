@@ -4,10 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="C2C: SQL to Excel function">
-      <change afterPath="$PROJECT_DIR$/C2C_ExtractionInfoExcels_option_1.py" afterDir="false" />
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="CSC: working extraction">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_ExtractionInfoExcels_option_1.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractionInfoExcels_option_1.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Functions-tests.py" beforeDir="false" afterPath="$PROJECT_DIR$/Functions-tests.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -234,7 +234,15 @@
       <option name="project" value="LOCAL" />
       <updated>1764084858259</updated>
     </task>
-    <option name="localTasksCounter" value="19" />
+    <task id="LOCAL-00019" summary="CSC: working extraction">
+      <option name="closed" value="true" />
+      <created>1764249271982</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1764249271982</updated>
+    </task>
+    <option name="localTasksCounter" value="20" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -253,7 +261,8 @@
     <MESSAGE value="C2C: OECD and SCL names put in excel" />
     <MESSAGE value="C2C: all template is exported" />
     <MESSAGE value="C2C: SQL to Excel function" />
-    <option name="LAST_COMMIT_MESSAGE" value="C2C: SQL to Excel function" />
+    <MESSAGE value="CSC: working extraction" />
+    <option name="LAST_COMMIT_MESSAGE" value="CSC: working extraction" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
