@@ -1,13 +1,137 @@
 ### This script goes to the CPS directory, checks all CAS files present and adds the info to the SQLite database.
-
-#### SET UP ####
-import sqlite3
-import os
-import re
+import requests
 import pandas as pd
-import openpyxl
 from datetime import datetime
-import traceback
+import tkinter as tk
+from tkinter import filedialog
+import os
+import json
+import sqlite3
+import time
+
+
+def checing_if_CAS_exists(CASall, db_path):
+    try:
+        connection = sqlite3.connect(db_path)
+        #st.success(f"Connected to SQLite database at: {db_path}")
+        cursor = connection.cursor()
+        found = []  # CAS numbers that exist in the DB
+        not_found = []  # CAS numbers that do NOT exist
+        for cas in CASall:
+            cursor.execute("SELECT 1 FROM C2C_DATABASE WHERE ID = ?", (cas,))
+            row = cursor.fetchone()
+
+            if row:
+                found.append(cas)
+            else:
+                not_found.append(cas)
+
+        print("CAS found in database:", found)
+        print("CAS not in database:", not_found)
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
+
+db_path = '/Users/juliakulpa/Desktop/test/Database/C2Cdatabase.db'
+CASall = ['50-00-0', '110-54-3', "00-00-1"]
+
+checing_if_CAS_exists(CASall, db_path)
+
+#
+# def check_jason(CASall, API_key):
+#     print('Checking API')
+#
+#     # Load the API key from file: It's on the dropbox under Science/Data searches/ED screener/input databases/NextSDS API key.txt
+#     with open(API_key) as creds:
+#         api_key = creds.readlines()[0]  # API key is on the first line
+#
+#     # Split up list in smaller parts (chunks)
+#     def chunk_list(lst, chunk_size):
+#         for i in range(0, len(lst), chunk_size):
+#             yield lst[i:i + chunk_size]
+#
+#     start_url = "https://api.nextsds.com/jobs/start"
+#     status_url = "https://api.nextsds.com/jobs/retrieve"
+#     headers = {
+#         "accept": "application/json",
+#         "Authorization": f"Bearer {api_key}",
+#         "Content-Type": "application/json"
+#     }
+#     # Step 1: Submit all jobs
+#     jobs = []
+#     for idx, cas_chunk in enumerate(chunk_list(CASall, 250)):
+#         data = {
+#             "taskId": "echa-api",
+#             "payload": cas_chunk
+#         }
+#         try:
+#             response = requests.post(start_url, headers=headers, json=data)
+#             if response.status_code == 200:
+#                 job_id = response.json().get("id")
+#                 jobs.append({"id": job_id, "index": idx + 1, "done": False, "output": None})
+#                 print(f"Chunk {idx + 1}: Job submitted successfully: {job_id}")
+#             else:
+#                 print(f"Chunk {idx + 1}: Failed to submit job")
+#         except Exception as e:
+#             print(f"Chunk {idx + 1}: Exception during job submission: {str(e)}")
+#
+#     # Step 2: Monitor all jobs in one loop
+#     while not all(job["done"] for job in jobs):
+#         time.sleep(10)
+#         for job in jobs:
+#             if job["done"]:
+#                 continue
+#             try:
+#                 status_response = requests.get(f"{status_url}/{job['id']}", headers=headers)
+#                 if status_response.status_code == 200:
+#                     status_data = status_response.json()
+#                     job_status = status_data.get("status")
+#                     print(f"Chunk {job['index']}: Job status: {job_status}")
+#                     if job_status not in ["STARTED", "EXECUTING"]:
+#                         job["done"] = True
+#                         job["output"] = status_data.get("output", [])
+#                 elif status_response.status_code in [400, 404]:
+#                     print(f"Chunk {job['index']}: Job error ({status_response.status_code})")
+#                     job["done"] = True
+#             except Exception as e:
+#                 print(f"Chunk {job['index']}: Exception during status check: {str(e)}")
+#
+#     # Step 3: Combine all outputs
+#     CnL_json = []
+#     for job in jobs:
+#         if job["output"]:
+#             CnL_json.extend(job["output"])
+#
+#     # Save to a JSON file
+#     currentdir = os.getcwd()
+#     exportpath = os.path.join(currentdir,"output")
+#     if not os.path.exists(exportpath):
+#         os.makedirs(exportpath)
+#     formatted_time = datetime.now().strftime("%Y-%m-%d %H-%M")  # Customize format as needed
+#     exportjson = os.path.join(exportpath, "CnLscreener exportJSON " + formatted_time +".json")
+#     with open(exportjson, "w") as json_file:
+#         json.dump(CnL_json, json_file, indent=2)
+#     return CnL_json
+#
+#
+# API_key = '/Users/juliakulpa/Desktop/Test_echa/NextSDS API key.txt'
+# CASall = ['50-00-0', '110-54-3']
+#
+# check_jason(CASall, API_key)
+#
+#
+#
+#
+#
+#
+#
+# #### SET UP ####
+# import sqlite3
+# import os
+# import re
+# import pandas as pd
+# import openpyxl
+# from datetime import datetime
+# import traceback
 
 # # Define the path to your SQLite database file
 # C2Cpath = "/Users/juliakulpa/Desktop/test"
@@ -21,7 +145,7 @@ import traceback
 # # Specify whether you want to load-in the CPS files or whether you want to start from a preloaded database
 # READ_IN_CPS = True
 
-sheet = pd.read_excel("/Users/juliakulpa/Desktop/test/CPS/CPS_CAS 10-00-0.xlsx")
+#sheet = pd.read_excel("/Users/juliakulpa/Desktop/test/CPS/CPS_CAS 10-00-0.xlsx")
 # def extract_notifiers_resources_wide(sheet, mainID):
 #     """
 #     Scan the sheet for 'Notifiers' and 'Resources' headers (case-insensitive).
