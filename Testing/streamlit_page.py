@@ -25,6 +25,8 @@ from datetime import datetime
 import json
 import copy
 
+from streamlit import empty
+
 st.title("ARCHE CAS database")
 # text
 st.markdown(
@@ -67,7 +69,12 @@ st.header(
 uploaded_file = st.file_uploader("Upload Excel file with CAS: A column with name CAS containing all CAS/EC numbers to screen in individual rows below. This should be on the first sheet.", type=["xlsx", "xlsm"])
 database_location = st.file_uploader("Upload a text file with database location in .txt", type=["txt"])
 #st.selectbox
+# save api key
 API_key = '/Users/juliakulpa/Desktop/Test_echa/NextSDS API key.txt'
+# folder with excels
+folder_excels = "/Users/juliakulpa/Desktop/test/CPS"
+# directory to save JSON
+save_json_dirr = "/Users/juliakulpa/Desktop/test/JSON"
 
 # Uploading the excel with CAS numbers
 if uploaded_file is not None:
@@ -84,6 +91,8 @@ if uploaded_file is not None:
 
     st.success(f"Uploaded excel file with {len(CASall)} CAS numbers: {', '.join(CASall)}")
 
+#starting with no path and then uploading it
+db_path = 0
 # Uploading the database location
 if database_location is not None:
     db_path = database_location.read().decode("utf-8").strip()
@@ -93,7 +102,7 @@ if database_location is not None:
         st.success(f":red[Database directory does not exist!!! Run button will only appear if you put the correct database directory]")
 
 ### FUNCTIONS
-def check_jason(CASall, API_key):
+def check_json(CASall, API_key, save_json_dirr):
     st.write('Checking API')
 
     # Load the API key from file: It's on the dropbox under Science/Data searches/ED screener/input databases/NextSDS API key.txt
@@ -158,9 +167,8 @@ def check_jason(CASall, API_key):
             CnL_json.extend(job["output"])
 
     # Save to a JSON file
-    currentdir = os.getcwd() # will have to check what this is and decide how to change it
-    exportpath = os.path.join(currentdir,"output")
-    st.write(exportpath)
+    exportpath = os.path.join(save_json_dirr,"output")
+    st.write("Save to:",exportpath)
     if not os.path.exists(exportpath):
         os.makedirs(exportpath)
     formatted_time = datetime.now().strftime("%Y-%m-%d %H-%M")  # Customize format as needed
@@ -168,13 +176,14 @@ def check_jason(CASall, API_key):
     with open(exportjson, "w") as json_file:
         json.dump(CnL_json, json_file, indent=2)
     return CnL_json
-def checing_if_CAS_exists(CASall, db_path):
+def checking_if_CAS_exists(CASall, db_path):
+    found = []
+    not_found = []
+
     try:
         connection = sqlite3.connect(db_path)
-        #st.success(f"Connected to SQLite database at: {db_path}")
         cursor = connection.cursor()
-        found = []  # CAS numbers that exist in the DB
-        not_found = []  # CAS numbers that do NOT exist
+
         for cas in CASall:
             cursor.execute("SELECT 1 FROM C2C_DATABASE WHERE ID = ?", (cas,))
             row = cursor.fetchone()
@@ -184,29 +193,80 @@ def checing_if_CAS_exists(CASall, db_path):
             else:
                 not_found.append(cas)
 
-        st.success(f"CAS found in database: {found}")
-        st.success(f"CAS not in database: {not_found}")
     except sqlite3.Error as e:
         st.write("SQLite error:", e)
 
+    finally:
+        if 'connection' in locals():
+            connection.close()
+
+    return found, not_found
+def check_if_excel_is_in_folder(folder_excels, CAS_list):
+    CAS_in_folder = []
+    CAS_not_in_folder = []
+
+    file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
+    cas_pattern = re.compile(r'CAS (\d{2,7}[-‐-–—]\d{2,3}[-‐-–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
+    ec_pattern = re.compile(r'EC (\d{2,7}[-‐-–—]\d{3}[-‐-–—]\d{1})')
+
+    # collect all inventory numbers (CAS) found in the folder
+    inv_in_folder = set()
+
+    for filename in os.listdir(folder_excels):
+        full_path = os.path.join(folder_excels, filename)
+        if os.path.isfile(full_path):
+            match = file_pattern.search(filename)
+            if match:
+                # Extract CAS inventory number (inv_number)
+                match_inv = cas_pattern.search(filename)
+                if match_inv:
+                    inv_number = match_inv.group(1)  # this is the CAS
+                    inv_in_folder.add(inv_number)
+                else:
+                    # if no CAS, then check for EC (kept from your code)
+                    match_inv = ec_pattern.search(filename)
+                    if match_inv:
+                        inv_number = match_inv.group(1)
+                    else:
+                        st.write(f"Issue with: {filename}")
+
+    # compare input CAS_list against what was found in folder
+    for cas in CAS_list:
+        if cas in inv_in_folder:
+            CAS_in_folder.append(cas)
+        else:
+            CAS_not_in_folder.append(cas)
+
+    return CAS_in_folder, CAS_not_in_folder
 #if connceted to database you can press run
 if os.path.isfile(db_path):
     if st.button(":green[Run]"):
-        try:
-            # jason files download:
-            #check_jason(CASall, API_key)
+        ### Beginning: before starting download all available json files
+        # json files download (first step to get new CnL info):
+        json = check_json(CASall, API_key, save_json_dirr)
 
-            ### if the CAS exists
-            checing_if_CAS_exists(CASall,db_path)
+        ### if the CAS exists and make a list with existing cas and the ones that have to be created
+        # found => CAS exists in DB
+        # not_found => CAS not in DB
+        found, not_found = checking_if_CAS_exists(CASall, db_path)
+        st.write(f"CAS found in database: {', '.join(found)}")
+        st.write(f"CAS not in database: {', '.join(not_found)}")
 
-            ### for CAS numbers that are not in the database
+        ### for CAS numbers that are NOT in the database (not_found)
+        # check if there is an Excel file with the given CAS
+        CAS_in_folder_1, CAS_not_in_folder_1 = check_if_excel_is_in_folder(folder_excels, not_found)
+        st.write(f"CAS found as an Excel: {', '.join(CAS_in_folder_1)}")
+        st.write(f"CAS not found as an Excel: {', '.join(CAS_not_in_folder_1)}")
+
+        ### for CAS numbers that are in the database (found)
+        # check if there is an Excel file with the given CAS
+        CAS_in_folder, CAS_not_in_folder = check_if_excel_is_in_folder(folder_excels, found)
+        st.write(f"CAS found as an Excel: {', '.join(CAS_in_folder)}")
+        if CAS_not_in_folder != []:
+            st.write(f":red[Those CAS are in DB but not as Excel files: {', '.join(CAS_not_in_folder)}]")
 
 
 
-            #cursor.execute("SELECT 1 FROM C2C_DATABASE WHERE ID = ?", (sqlinfo["ID"]))
 
 
-
-        except sqlite3.Error as e:
-            print("SQLite error", e)
 

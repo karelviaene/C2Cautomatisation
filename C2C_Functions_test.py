@@ -7,16 +7,19 @@ from tkinter import filedialog
 import os
 import json
 import sqlite3
+import re
 import time
+import os
+import re
+from datetime import datetime
+def checking_if_CAS_exists(CASall, db_path):
+    found = []
+    not_found = []
 
-
-def checing_if_CAS_exists(CASall, db_path):
     try:
         connection = sqlite3.connect(db_path)
-        #st.success(f"Connected to SQLite database at: {db_path}")
         cursor = connection.cursor()
-        found = []  # CAS numbers that exist in the DB
-        not_found = []  # CAS numbers that do NOT exist
+
         for cas in CASall:
             cursor.execute("SELECT 1 FROM C2C_DATABASE WHERE ID = ?", (cas,))
             row = cursor.fetchone()
@@ -26,15 +29,133 @@ def checing_if_CAS_exists(CASall, db_path):
             else:
                 not_found.append(cas)
 
-        print("CAS found in database:", found)
-        print("CAS not in database:", not_found)
+        print(f"CAS found in database: {found}")
+        print(f"CAS not in database: {not_found}")
+
     except sqlite3.Error as e:
         print("SQLite error:", e)
 
+    finally:
+        if 'connection' in locals():
+            connection.close()
+
+    return found, not_found
+
 db_path = '/Users/juliakulpa/Desktop/test/Database/C2Cdatabase.db'
 CASall = ['50-00-0', '110-54-3', "00-00-1"]
+CnL_json = '/Users/juliakulpa/output/CnLscreener exportJSON 2025-12-09 14-22.json'
+folder_excels = "/Users/juliakulpa/Desktop/test/CPS"
+found, not_found = checking_if_CAS_exists(CASall,db_path)
 
-checing_if_CAS_exists(CASall, db_path)
+
+
+
+# Loop through Excel files with CAS number
+
+def check_if_excel_is_in_folder(folder_excels, CAS_list):
+    CAS_in_folder = []
+    CAS_not_in_folder = []
+
+    file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
+    cas_pattern = re.compile(r'CAS (\d{2,7}[-‐-–—]\d{2,3}[-‐-–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
+    ec_pattern = re.compile(r'EC (\d{2,7}[-‐-–—]\d{3}[-‐-–—]\d{1})')
+
+    # collect all inventory numbers (CAS) found in the folder
+    inv_in_folder = set()
+
+    for filename in os.listdir(folder_excels):
+        full_path = os.path.join(folder_excels, filename)
+        if os.path.isfile(full_path):
+            match = file_pattern.search(filename)
+            if match:
+                # Extract CAS inventory number (inv_number)
+                match_inv = cas_pattern.search(filename)
+                if match_inv:
+                    inv_number = match_inv.group(1)  # this is the CAS
+                    inv_in_folder.add(inv_number)
+                else:
+                    # if no CAS, then check for EC (kept from your code)
+                    match_inv = ec_pattern.search(filename)
+                    if match_inv:
+                        inv_number = match_inv.group(1)
+                    else:
+                        print(f"Issue with: {filename}")
+
+    # compare input CAS_list against what was found in folder
+    for cas in CAS_list:
+        if cas in inv_in_folder:
+            CAS_in_folder.append(cas)
+        else:
+            CAS_not_in_folder.append(cas)
+
+    return CAS_in_folder, CAS_not_in_folder
+
+
+CAS_in_folder, CAS_not_in_folder = check_if_excel_is_in_folder(folder_excels, CASall)
+print("solution:",CAS_in_folder, CAS_not_in_folder)
+# def check_if_excel_is_in_folder(folder_excels)
+#     CAS_in_folder = []
+#
+#     file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
+#     cas_pattern = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
+#     cas_pattern_strict = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})', re.IGNORECASE)
+#     ec_pattern = re.compile(r'EC (\d{2,7}[-‐‑–—]\d{3}[-‐‑–—]\d{1})')
+#
+#     for filename in os.listdir(folder_excels):
+#         full_path = os.path.join(folder_excels, filename)
+#         if os.path.isfile(full_path):
+#             match = file_pattern.search(filename)
+#             if match:
+#                 print(filename)
+#                 #### Update database: general info #####
+#                 # Get last modification time and format it as DD/MM/YYYY
+#                 mod_time = os.path.getmtime(full_path)
+#                 last_update = datetime.fromtimestamp(mod_time).strftime("%d/%m/%Y")
+#
+#                 # Extract CAS number or EC number if applicable
+#                 match_inv = cas_pattern.search(filename)  # Check for CAS number
+#                 comments = "There should be something here. Please check."
+#                 if match_inv:  # If CAS
+#                     comments = "CAS"
+#                     if match_inv.group(2):  # If there is additional info after the CAS number, save it in comments
+#                         comments = "CAS, " + match_inv.group(2)
+#
+#                 else:  # if no CAS, then check for EC
+#                     match_inv = ec_pattern.search(filename)
+#                     comments = "EC"
+#                 if match_inv:  # If a standard format is found, save for use in the database
+#                     inv_number = match_inv.group(1)
+#                 else:  # Else print the file for which there is an issue
+#                     print(f"Issue with: {filename}")
+#
+#
+
+
+# def checing_if_CAS_exists(CASall, db_path):
+#     try:
+#         connection = sqlite3.connect(db_path)
+#         #st.success(f"Connected to SQLite database at: {db_path}")
+#         cursor = connection.cursor()
+#         found = []  # CAS numbers that exist in the DB
+#         not_found = []  # CAS numbers that do NOT exist
+#         for cas in CASall:
+#             cursor.execute("SELECT 1 FROM C2C_DATABASE WHERE ID = ?", (cas,))
+#             row = cursor.fetchone()
+#
+#             if row:
+#                 found.append(cas)
+#             else:
+#                 not_found.append(cas)
+#
+#         print("CAS found in database:", found)
+#         print("CAS not in database:", not_found)
+#     except sqlite3.Error as e:
+#         print("SQLite error:", e)
+#
+# db_path = '/Users/juliakulpa/Desktop/test/Database/C2Cdatabase.db'
+# CASall = ['50-00-0', '110-54-3', "00-00-1"]
+#
+# checing_if_CAS_exists(CASall, db_path)
 
 #
 # def check_jason(CASall, API_key):

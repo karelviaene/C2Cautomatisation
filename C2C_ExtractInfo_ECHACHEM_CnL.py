@@ -160,12 +160,13 @@ C2Cfiles_path = os.path.join(C2Cpath,"CPS")
 try:
     connection = sqlite3.connect(db_path)
     cursor = connection.cursor()
-
+ #id INTEGER PRIMARY KEY AUTOINCREMENT,
     # Ensure ECHACHEM_CL table exists
+    cursor.execute("PRAGMA foreign_keys = ON;")
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ECHACHEM_CL (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        code TEXT ,
+        code TEXT NOT NULL,
         on_cl TEXT,
         cas TEXT,
         ec TEXT,
@@ -173,7 +174,7 @@ try:
         type_classification TEXT,
         hazards TEXT,
         date_checked TEXT,
-        FOREIGN KEY (code) REFERENCES DATABASE_C2C(ID)
+        FOREIGN KEY (code) REFERENCES C2C_DATABASE(ID)
     )
     """)
 
@@ -227,6 +228,10 @@ try:
 
         else:
             print(f"Inserting CAS {sqlinfo['cas']}...")
+            cursor.execute(
+                "INSERT INTO C2C_DATABASE (ID) VALUES (?)",
+                (sqlinfo["code"],)
+            ) # adds a CAS to the main database so it can create a key
             cursor.execute("""
                 INSERT INTO ECHACHEM_CL (code, on_cl, cas, ec, name_echachem, type_classification, hazards, date_checked)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -242,6 +247,13 @@ try:
             ))
             connection.commit()
             print("Insert complete.")
+
+        cursor.execute("SELECT hazards FROM ECHACHEM_CL WHERE code = ?",
+                                     (sqlinfo["code"],))
+
+        row = cursor.fetchone()
+        hazards_list = row[0].split(",") if row and row[0] else []
+        print(hazards_list)
 
     print("SQL updated")
 
