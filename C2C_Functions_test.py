@@ -96,6 +96,109 @@ READ_IN_CPS = True
 
 CAS_needing_DB_update = ["110-54-3","50-00-0"]
 
+def save_DB_to_excel(db_path, C2Cpath):
+    #### Save Database as Excel ####
+    try:
+        ### SQL SET-UP
+        connection = sqlite3.connect(db_path)
+        print("Reconnected to database to export to Excel", db_path)
+
+        # Get a list of all tables in the database
+        tables_df = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';", connection)
+        tables = tables_df['name'].tolist()
+        tables = [t for t in tables if t not in ("C2C_DATABASE", "ECHACHEM_CL")] # Exclude the main table from the aggregation
+        # Also excludes ECHA-CHEM as that datatable is not connected through ref
+        cte_list = []
+        join_list = []
+        main_table = "C2C_DATABASE"
+
+        # AGGREGATE ALL DEPENDENT TABLES SO THAT WE CAN EASILY USE LEFTJOIN
+        for table in tables:
+            cursor = connection.cursor()
+            cursor.execute(f"PRAGMA table_info({table})")
+            columns_info = cursor.fetchall()
+            cols = [col[1] for col in columns_info if col[1] not in ('ref', 'ID')]
+
+            if not cols or 'ref' not in [col[1] for col in columns_info]:
+                continue  # skip tables without 'ref'
+
+            # Build GROUP_CONCAT for each column
+            group_concat_cols = ",\n       ".join([f"GROUP_CONCAT([{col}], CHAR(10)) AS [{col}]" for col in cols])
+
+            # Define CTE
+            cte_name = f"{table}Agg"
+            cte = f"{cte_name} AS (\n    SELECT ref,\n           {group_concat_cols}\n    FROM {table}\n    GROUP BY ref\n)"
+            cte_list.append(cte)
+
+            # Prepare LEFT JOIN
+            join_list.append(f"LEFT JOIN {cte_name} {table[:4].lower()} ON {main_table}.ID = {table[:4].lower()}.ref")
+
+        # Combine all CTEs
+        cte_sql = ",\n".join(cte_list)
+
+        # Select all columns from main_table + aggregated tables
+        cursor.execute(f"PRAGMA table_info({main_table})")
+        main_cols = [f"{main_table}.[{col[1]}]" for col in cursor.fetchall()]
+
+        select_cols = main_cols.copy()
+        for table in tables:
+            cursor.execute(f"PRAGMA table_info({table})")
+            for col in cursor.fetchall():
+                if col[1] not in ('ref',"ID"):
+                    select_cols.append(f"{table[:4].lower()}.[{col[1]}]")
+
+        select_sql = ",\n    ".join(select_cols)
+        join_sql = "\n".join(join_list)
+
+        final_query = f"WITH {cte_sql}\nSELECT\n    {select_sql}\nFROM {main_table}\n{join_sql};"
+
+        df = pd.read_sql_query(final_query, connection)
+
+        # Make sure everything is readable for Excel
+        def sanitize_excel_cells(df):
+            def fix_value(val):
+                if isinstance(val, str):
+                    # If it starts with '=', prefix with a single quote to force Excel to treat it as text
+                    if val.strip().startswith("="):
+                        return "'" + val
+                    # Remove control characters that break XML
+                    return ''.join(ch for ch in val if ch.isprintable())
+                return val
+
+            for col in df.columns:
+                df[col] = df[col].map(fix_value)
+            return df
+
+
+        # Clean both headers and cell values
+        # df.columns = clean_excel_headers(df.columns)  # from earlier
+        df = sanitize_excel_cells(df)
+
+        # Write away the database as Excel
+        with pd.ExcelWriter(C2Cpath + '/Database/C2Cdatabase ' + today + '.xlsx', engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name="C2C DATABASE", index=False)
+        print(f"Database exported to Excel as {C2Cpath}/{today}.xlsx")
+
+
+    except sqlite3.Error as e:
+        # Catches SQLite-specific errors
+        print("SQLite error:", e)
+        traceback.print_exc()  # prints the full traceback
+
+    except Exception as e:
+        # Catches other Python errors
+        print("General error:", e)
+        traceback.print_exc()
+
+    finally:
+        # Always close connection if it was created
+        try:
+            connection.close()
+            print("Connection closed.")
+        except NameError:
+            pass
+
+save_DB_to_excel(db_path, C2Cpath)
 def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update):
     #### CUSTOM FUNCTIONS ####
     def add_info_CPS_below(sheet, search_strings, maindatabase, newdatabase, mainID):
@@ -1137,7 +1240,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
 
 
 
-extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
+#extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
  ###
 def make_a_backup(db_path):
     try:
@@ -1265,8 +1368,8 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
             connection.close()
         print("Connection closed.")
 #
-# a = is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list=["10-00-0", "AAA"])
-# print(a)
+a = is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list=["10-00-1", "50-00-0"])
+print(a)
 # #### Create/update C2C database with CAS numbers from Excel files ####
 # def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
 #     cas_hazards = {} # used later to create a list of things to update
