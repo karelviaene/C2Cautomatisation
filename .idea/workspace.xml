@@ -6,6 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="streamlit update">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_Functions_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_Functions_test.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Testing/streamlit_page.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_page.py" afterDir="false" />
     </list>
@@ -267,7 +268,15 @@
       <option name="project" value="LOCAL" />
       <updated>1765902582772</updated>
     </task>
-    <option name="localTasksCounter" value="23" />
+    <task id="LOCAL-00023" summary="streamlit update">
+      <option name="closed" value="true" />
+      <created>1766046029255</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1766046029255</updated>
+    </task>
+    <option name="localTasksCounter" value="24" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">

@@ -62,17 +62,6 @@ st.header(
 uploaded_file = st.file_uploader("Upload Excel file with CAS: A column with name CAS containing all CAS/EC numbers to screen in individual rows below. This should be on the first sheet.", type=["xlsx", "xlsm"])
 database_location = st.file_uploader("Upload a text file with database location in .txt", type=["txt"])
 #st.selectbox
-# save api key
-API_key = '/Users/juliakulpa/Desktop/DB_demo/Streamlit info/NextSDS API key.txt'
-# folder with excels
-folder_excels = "/Users/juliakulpa/Desktop/DB_demo/CPS"
-# directory to save JSON
-save_json_dirr = "/Users/juliakulpa/Desktop/DB_demo/JSON"
-DB_excel_saving_path = "/Users/juliakulpa/Desktop/DB_demo/Downloads from Streamlit"
-folder = folder_excels
-image_dir = '/Users/juliakulpa/Desktop/DB_demo/Chem_image'
-template_path = "/Users/juliakulpa/Desktop/DB_demo/Template/CPS_CAS TEMPLATE V2.xlsm"
-
 
 # Uploading the excel with CAS numbers
 if uploaded_file is not None:
@@ -1411,6 +1400,9 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                     continue
             # Check which inv you work with
             st.write(f"Updating CAS: {inv_number}")
+            cursor.execute(
+                'INSERT INTO C2C_DATABASE (ID, LastUpdate, FileName , Comments) VALUES (?,?,?,?)',
+                (inv_number, last_update, filename, comments))
 
             # Open the Excel file
             CPS_wb_obj = openpyxl.load_workbook(full_path)
@@ -2882,6 +2874,19 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 #### Create/update C2C database with CAS numbers from Excel files ####
 # if connceted to database you can press run
 if os.path.isfile(db_path):
+
+    # find all other directories
+    project_root = os.path.dirname(os.path.dirname(db_path))  # goes to folder new_DB_tests
+
+    # save api key
+    API_key = os.path.join(project_root, "Streamlit info", "NextSDS API key.txt")
+    folder_excels = os.path.join(project_root, "CPS")
+    save_json_dirr = os.path.join(project_root, "JSON")
+    folder = folder_excels
+    image_dir = os.path.join(project_root, "Chem_image")
+    template_path = os.path.join(project_root, "Template", "CPS_CAS TEMPLATE V2.xlsm")
+    folder_for_saving = os.path.join(project_root, "Downloads from Streamlit")
+
     if st.button(":green[Run the code to screen selected CAS]"):
         ### Beginning: before starting download all available json files and make a backup of the DB
         st.success(":blue[Creating a DB back up.]")
@@ -2909,7 +2914,7 @@ if os.path.isfile(db_path):
 
         ### for CAS numbers that are NOT in the database (not_found)
         if not_found != []:
-            st.success(":blue[For CAS not found in database. Searching if CAS is in the Excel file.]")
+            st.success(f":blue[For CAS not found in database {', '.join(not_found)}. Searching if CAS is in the Excel file.]")
             # check if there is an Excel file with the given CAS
             CAS_not_in_DB_but_in_excel, CAS_not_in_DB_and_not_in_excel = check_if_excel_is_in_folder(folder_excels, not_found)
 
@@ -2923,12 +2928,17 @@ if os.path.isfile(db_path):
             # for CAS not in DB and not in Excel
             if CAS_not_in_DB_and_not_in_excel != []:
                 st.success(f":red[CAS missing from DB and not in the Excel files: {', '.join(CAS_not_in_DB_and_not_in_excel)}. They need to be added to DB.]")
+                st.write(f"Creating {', '.join(CAS_not_in_DB_and_not_in_excel)} as Excel files")
+                for CAS in CAS_not_in_DB_and_not_in_excel:
+                    extraction_info_excels(db_path, template_path, CAS, folder_for_saving, image_dir)
+                    st.toast(f"Excel file for {CAS} saved in your folder. Check it!")
+                    st.write(f"Excel file saved {CAS} in your folder.")
             else:
                 st.success("There are no CAS missing from DB and not in the Excel files.")
 
         ### for CAS numbers that are in the database (found)
         if found != []:
-            st.success(":blue[For CAS found in database. Searching if CAS is in the Excel file and if the info is up to date.]")
+            st.success(f":blue[For CAS found in database {', '.join(found)}. Searching if CAS is in the Excel file and if the info is up to date.]")
             # check if there is an Excel file with the given CAS
             CAS_in_folder, CAS_not_in_folder = check_if_excel_is_in_folder(folder_excels, found)
             if CAS_in_folder != []:
@@ -2948,7 +2958,7 @@ if os.path.isfile(db_path):
                 # creating an Excel with info that is in the DB
                 st.write("Generating an Excel file")
                 for CAS in CAS_not_in_folder:
-                    extraction_info_excels(db_path, template_path, CAS, folder, image_dir)
+                    extraction_info_excels(db_path, template_path, CAS, folder_for_saving, image_dir)
                     st.toast("Excel file saved in your folder. Check it!")
                     st.write("Excel file saved in your folder.")
 
@@ -2972,6 +2982,20 @@ if os.path.isfile(db_path):
 
 # saving the DB as excel file if needed
 if os.path.isfile(db_path):
+
+    # find all other directories
+    project_root = os.path.dirname(os.path.dirname(db_path))  # goes to folder new_DB_tests
+
+    # save api key
+    API_key = os.path.join(project_root, "Streamlit info", "NextSDS API key.txt")
+    folder_excels = os.path.join(project_root, "CPS")
+    save_json_dirr = os.path.join(project_root, "JSON")
+    folder = folder_excels
+    image_dir = os.path.join(project_root, "Chem_image")
+    template_path = os.path.join(project_root, "Template", "CPS_CAS TEMPLATE V2.xlsm")
+    folder_for_saving = os.path.join(project_root, "Downloads from Streamlit")
+    DB_excel_saving_path = folder_for_saving
+
     if st.button(":green[Do you want to make a current DB info as an Excel file?]"):
         st.write(f"DB info will be checked for: {db_path}")
         save_DB_to_excel(db_path, DB_excel_saving_path)

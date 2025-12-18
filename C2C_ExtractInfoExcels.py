@@ -1283,7 +1283,7 @@ def extraction_info_excels(database, CAS, folder, image_dir):
     except sqlite3.Error as e:
         print("SQLite error:", e)
 
-CAS_numbers= ["10-00-0","50-00-0","108-31-6","110-54-3","1592-23-0"]
+CAS_numbers= ["98-95-3"]
 for CAS in CAS_numbers:
     extraction_info_excels(database, CAS, folder, image_dir)
 
