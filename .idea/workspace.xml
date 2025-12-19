@@ -4,8 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="">
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="streamlit update">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_Functions_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_Functions_test.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_page.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" afterDir="false" />
@@ -23,6 +26,11 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="julia-SCL-function" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="GitHubPullRequestSearchHistory">{
@@ -34,9 +42,12 @@
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
     &quot;url&quot;: &quot;https://github.com/karelviaene/C2Cautomatisation.git&quot;,
-    &quot;accountId&quot;: &quot;db155900-50cb-46cb-bc83-36b56efc8977&quot;
+    &quot;accountId&quot;: &quot;9af34f37-2955-4015-899c-fce51d611cc4&quot;
   }
 }</component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 0
 }</component>
@@ -49,22 +60,30 @@
   &quot;keyToString&quot;: {
     &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.ARCHE_ED Screener.executor&quot;: &quot;Run&quot;,
     &quot;Python.C2C_CreateDB.executor&quot;: &quot;Run&quot;,
+    &quot;Python.C2C_CreateDB_1.executor&quot;: &quot;Run&quot;,
+    &quot;Python.C2C_CreateDB_old.executor&quot;: &quot;Run&quot;,
     &quot;Python.C2C_ExtractInfoExcels.executor&quot;: &quot;Run&quot;,
     &quot;Python.C2C_ExtractInfo_ECHACHEM_CnL.executor&quot;: &quot;Run&quot;,
+    &quot;Python.C2C_ExtractionInfoExcels_option_1.executor&quot;: &quot;Run&quot;,
+    &quot;Python.C2C_Functions_test.executor&quot;: &quot;Run&quot;,
     &quot;Python.C2Cmain.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Functions-tests.executor&quot;: &quot;Run&quot;,
     &quot;Python.SMILESlookup.executor&quot;: &quot;Run&quot;,
+    &quot;Python.streamlit_page.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;julia&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;
   }
 }</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-4c141bd692a7-e2d783800521-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-251.26927.90" />
+        <option value="bundled-python-sdk-164cda30dcd9-0af03a5fa574-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.26830.99" />
       </set>
     </attachedChunks>
   </component>
@@ -76,6 +95,243 @@
       <option name="presentableId" value="Default" />
       <updated>1754294338510</updated>
     </task>
+    <task id="LOCAL-00001" summary="saving">
+      <option name="closed" value="true" />
+      <created>1761564512755</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1761564512755</updated>
+    </task>
+    <task id="LOCAL-00002" summary="I added a function add_info_CPS_right_until_empty that makes the resources for all the values. Only thing is that for now it will create this column even if no resource is present">
+      <option name="closed" value="true" />
+      <created>1761569692006</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1761569692006</updated>
+    </task>
+    <task id="LOCAL-00003" summary="The new function, and changed for loops to extract data">
+      <option name="closed" value="true" />
+      <created>1762168964228</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1762168964228</updated>
+    </task>
+    <task id="LOCAL-00004" summary="just as a back up">
+      <option name="closed" value="true" />
+      <created>1762168980246</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1762168980246</updated>
+    </task>
+    <task id="LOCAL-00005" summary="All criteria are in except the Specific Concentration Limits and Other Comments">
+      <option name="closed" value="true" />
+      <created>1762273400446</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1762273400446</updated>
+    </task>
+    <task id="LOCAL-00006" summary="All criteria are in except the Specific Concentration Limits and Other Comments">
+      <option name="closed" value="true" />
+      <created>1762273411863</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1762273411863</updated>
+    </task>
+    <task id="LOCAL-00007" summary="All functions apart from SCL">
+      <option name="closed" value="true" />
+      <created>1762344768740</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1762344768740</updated>
+    </task>
+    <task id="LOCAL-00008" summary="All functions apart from SCL">
+      <option name="closed" value="true" />
+      <created>1762344780193</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1762344780193</updated>
+    </task>
+    <task id="LOCAL-00009" summary="update from 06-11">
+      <option name="closed" value="true" />
+      <created>1762444415819</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1762444415819</updated>
+    </task>
+    <task id="LOCAL-00010" summary="Added the extraction of images to an separate folder">
+      <option name="closed" value="true" />
+      <created>1762446830345</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1762446830345</updated>
+    </task>
+    <task id="LOCAL-00011" summary="For now I made it work for the carc and it fills the correct data. Still needs: resource too and all others">
+      <option name="closed" value="true" />
+      <created>1763039592896</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1763039592896</updated>
+    </task>
+    <task id="LOCAL-00012" summary="Working on C2C extraction info for excel">
+      <option name="closed" value="true" />
+      <created>1763478338693</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1763478338693</updated>
+    </task>
+    <task id="LOCAL-00013" summary="C2C filling the excel: all that can be filled with the right function are in">
+      <option name="closed" value="true" />
+      <created>1763482233232</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1763482233232</updated>
+    </task>
+    <task id="LOCAL-00014" summary="C2C: OECD tests sorted out with different tables">
+      <option name="closed" value="true" />
+      <created>1763982314971</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1763982314971</updated>
+    </task>
+    <task id="LOCAL-00015" summary="C2C: OECD tests sorted out with different tables">
+      <option name="closed" value="true" />
+      <created>1763987473123</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1763987473123</updated>
+    </task>
+    <task id="LOCAL-00016" summary="C2C: OECD and SCL names put in excel">
+      <option name="closed" value="true" />
+      <created>1764068797736</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1764068797736</updated>
+    </task>
+    <task id="LOCAL-00017" summary="C2C: all template is exported">
+      <option name="closed" value="true" />
+      <created>1764075026559</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1764075026559</updated>
+    </task>
+    <task id="LOCAL-00018" summary="C2C: SQL to Excel function">
+      <option name="closed" value="true" />
+      <created>1764084858259</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1764084858259</updated>
+    </task>
+    <task id="LOCAL-00019" summary="CSC: working extraction">
+      <option name="closed" value="true" />
+      <created>1764249271982</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1764249271982</updated>
+    </task>
+    <task id="LOCAL-00020" summary="CSC: working extraction">
+      <option name="closed" value="true" />
+      <created>1765292003899</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1765292003899</updated>
+    </task>
+    <task id="LOCAL-00021" summary="CnL functions">
+      <option name="closed" value="true" />
+      <created>1765809757575</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1765809757575</updated>
+    </task>
+    <task id="LOCAL-00022" summary="streamlit update">
+      <option name="closed" value="true" />
+      <created>1765902582772</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1765902582772</updated>
+    </task>
+    <task id="LOCAL-00023" summary="streamlit update">
+      <option name="closed" value="true" />
+      <created>1766046029255</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1766046029255</updated>
+    </task>
+    <option name="localTasksCounter" value="24" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="saving" />
+    <MESSAGE value="I added a function add_info_CPS_right_until_empty that makes the resources for all the values. Only thing is that for now it will create this column even if no resource is present" />
+    <MESSAGE value="The new function, and changed for loops to extract data" />
+    <MESSAGE value="just as a back up" />
+    <MESSAGE value="All criteria are in except the Specific Concentration Limits and Other Comments" />
+    <MESSAGE value="All functions apart from SCL" />
+    <MESSAGE value="update from 06-11" />
+    <MESSAGE value="Added the extraction of images to an separate folder" />
+    <MESSAGE value="For now I made it work for the carc and it fills the correct data. Still needs: resource too and all others" />
+    <MESSAGE value="Working on C2C extraction info for excel" />
+    <MESSAGE value="C2C filling the excel: all that can be filled with the right function are in" />
+    <MESSAGE value="C2C: OECD tests sorted out with different tables" />
+    <MESSAGE value="C2C: OECD and SCL names put in excel" />
+    <MESSAGE value="C2C: all template is exported" />
+    <MESSAGE value="C2C: SQL to Excel function" />
+    <MESSAGE value="CSC: working extraction" />
+    <MESSAGE value="CnL functions" />
+    <MESSAGE value="streamlit update" />
+    <option name="LAST_COMMIT_MESSAGE" value="streamlit update" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/C2C_CreateDB.py</url>
+          <line>202</line>
+          <option name="timeStamp" value="9" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/C2C_CreateDB.py</url>
+          <line>266</line>
+          <option name="timeStamp" value="10" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/C2C_CreateDB.py</url>
+          <line>263</line>
+          <option name="timeStamp" value="11" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/C2C_CreateDB.py</url>
+          <line>253</line>
+          <option name="timeStamp" value="12" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/C2C_CreateDB.py</url>
+          <line>218</line>
+          <option name="timeStamp" value="13" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

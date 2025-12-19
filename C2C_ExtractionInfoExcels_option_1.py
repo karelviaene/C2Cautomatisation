@@ -776,34 +776,12 @@ def extraction_info_excels(database, CAS, folder, image_dir):
     def put_template_into_CPS(filepath, template_path):
         '''Puts the template into the CPS excel that exists or creates a new one'''
 
-        def open_or_create_xlsm(filepath):
-            """
-            Opens an existing .xlsm file with macros preserved.
-            If it doesn't exist, creates a new one.
-            Returns the workbook object.
-            """
-            if not filepath.lower().endswith(".xlsm"):
-                print(f"ERROR: Expected an .xlsm file, but got: {filepath}")
-                return None
-            if os.path.exists(filepath):
-                # Load workbook and preserve macros
-                wb = load_workbook(filepath, keep_vba=True)
-                print(f"Opened existing file: {filepath}")
-            else:
-                # Create new workbook and save as xlsm
-                wb = Workbook()
-                wb.save(filepath)
-                wb2 = load_workbook(filepath, keep_vba=True)
-                wb2.save(filepath)
-                print(f"Created new xlsm file: {filepath}")
-            return wb
-
         def add_new_sheet(filepath, new_sheet_name):
             """
             Opens (or creates) an xlsm file and adds a new sheet.
             Saves the file afterwards.
             """
-            wb = open_or_create_xlsm(filepath)
+            wb = load_workbook(filepath, keep_vba=True)
 
             # If sheet already exists, create a unique name
             if new_sheet_name in wb.sheetnames:
@@ -892,15 +870,9 @@ def extraction_info_excels(database, CAS, folder, image_dir):
 
             src_ws = src_wb[src_sheet_name]
 
-            # --- Load or create destination workbook ---
+            # --- Load destination workbook ---
             if os.path.exists(dest_path):
-                dest_wb = load_wb_any(dest_path)
-            else:
-                from openpyxl import Workbook
-                dest_wb = Workbook()
-                # Clear the default sheet
-                default_sheet = dest_wb.active
-                dest_wb.remove(default_sheet)
+                dest_wb = load_workbook(dest_path, keep_vba=True)
 
             # If sheet with that name already exists in dest, remove it or rename first
             if dest_sheet_name in dest_wb.sheetnames:
@@ -963,8 +935,6 @@ def extraction_info_excels(database, CAS, folder, image_dir):
 
                         for rule in cf.cfRule:
                             dest_ws.conditional_formatting.add(dst_range, copy(rule))
-            # --- Copy sheet protection settings (so locked cells stay locked) ---
-            dest_ws.protection = copy(src_ws.protection)
 
             # --- Save destination workbook ---
             dest_wb.save(dest_path)
@@ -1283,10 +1253,10 @@ def extraction_info_excels(database, CAS, folder, image_dir):
     except sqlite3.Error as e:
         print("SQLite error:", e)
 
-CAS_numbers= ["98-95-3"]
-for CAS in CAS_numbers:
-    extraction_info_excels(database, CAS, folder, image_dir)
+# CAS_numbers= ["10-00-0","50-00-0","108-31-6","110-54-3","1592-23-0"]
+# for CAS in CAS_numbers:
+#     extraction_info_excels(database, CAS, folder, image_dir)
 
 # extraction_info_excels(database, "50-00-0", ws_template, folder, image_dir)
-#extraction_info_excels(database, "10-00-0", folder, image_dir)
+extraction_info_excels(database, "50-00-0", folder, image_dir)
 # extraction_info_excels(database, "50-00-0", ws_template, folder, image_dir)
