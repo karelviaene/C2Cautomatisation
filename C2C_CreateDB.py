@@ -327,8 +327,8 @@ def add_info_CPS_right(sheet, rowlabel, column_offsets, column_names, maindataba
                 for offset, col_name in zip(column_offsets, column_names):
                     target_cell = sheet.cell(row=row_idx, column=col_idx + offset)
                     extracted_data[col_name] = target_cell.value
-                # Always grab Resource from the same row
-                extracted_data[resource_colname] = (
+                # Always try to grab Resource from the same row
+                extracted_data["Resource_" + row_idx] = (
                     sheet.cell(row=row_idx, column=resource_col).value if resource_col else None
                 )
                 found = True

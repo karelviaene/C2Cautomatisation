@@ -9,6 +9,9 @@
       <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/C2C_Functions_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_Functions_test.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Testing/streamlit_page.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_page.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

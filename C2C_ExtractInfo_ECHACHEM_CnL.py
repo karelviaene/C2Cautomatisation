@@ -76,6 +76,7 @@ print('Checking API')
 
 # Load the API key from file: It's on the dropbox under Science/Data searches/ED screener/input databases/NextSDS API key.txt
 with open('/Users/juliakulpa/Desktop/Test_echa/NextSDS API key.txt') as creds:
+with open('/Users/arche/Arche Dropbox/Science/Data searches/ED screener/input databases/NextSDS API key.txt') as creds:
     api_key = creds.readlines()[0]  # API key is on the first line
 
 # Split up list in smaller parts (chunks)
