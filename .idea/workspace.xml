@@ -4,14 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="streamlit update">
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="two streamlit options (one without and one with dropbox)">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/C2C_CreateDB.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_CreateDB.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfoExcels.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_ExtractInfo_ECHACHEM_CnL.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/C2C_Functions_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_Functions_test.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/Database/C2Cdatabase.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_page.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/Dropbox_API_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/Dropbox_API_test.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -70,6 +65,7 @@
     "Python.C2C_Functions_test.executor": "Run",
     "Python.C2Cmain.executor": "Run",
     "Python.Dropbox API test.executor": "Run",
+    "Python.Dropbox_API_test.executor": "Run",
     "Python.Functions-tests.executor": "Run",
     "Python.SMILESlookup.executor": "Run",
     "Python.streamlit_page.executor": "Run",
@@ -78,7 +74,7 @@
     "RunOnceActivity.git.unshallow": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "git-widget-placeholder": "main",
-    "settings.editor.selected.configurable": "preferences.pluginManager"
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
 }]]></component>
   <component name="SharedIndexes">
@@ -280,7 +276,15 @@
       <option name="project" value="LOCAL" />
       <updated>1766046029255</updated>
     </task>
-    <option name="localTasksCounter" value="24" />
+    <task id="LOCAL-00024" summary="two streamlit options (one without and one with dropbox)">
+      <option name="closed" value="true" />
+      <created>1767786840424</created>
+      <option name="number" value="00024" />
+      <option name="presentableId" value="LOCAL-00024" />
+      <option name="project" value="LOCAL" />
+      <updated>1767786840424</updated>
+    </task>
+    <option name="localTasksCounter" value="25" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -302,7 +306,8 @@
     <MESSAGE value="CSC: working extraction" />
     <MESSAGE value="CnL functions" />
     <MESSAGE value="streamlit update" />
-    <option name="LAST_COMMIT_MESSAGE" value="streamlit update" />
+    <MESSAGE value="two streamlit options (one without and one with dropbox)" />
+    <option name="LAST_COMMIT_MESSAGE" value="two streamlit options (one without and one with dropbox)" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

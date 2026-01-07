@@ -50,6 +50,33 @@ def check_dropbox_connection(access_token: str) -> dict:
         result["message"] = f"Unexpected error: {e}"
     return result
 
+def list_dropbox_folder(access_token: str):
+    try:
+        dbx = dropbox.Dropbox(access_token)
+
+        entries = []
+        result = dbx.files_list_folder(path="")
+        st.write(result)
+
+        while True:
+            entries.extend(result.entries)
+            if result.has_more:
+                result = dbx.files_list_folder_continue(result.cursor)
+            else:
+                break
+
+        return {
+            "ok": True,
+            "entries": entries
+        }
+
+    except ApiError as e:
+        return {
+            "ok": False,
+            "error": f"Dropbox API error: {e}"
+        }
+
+
 if st.button("Check connection", type="primary"):
     if not token:
         st.error("Please paste an access token.")
@@ -62,3 +89,31 @@ if st.button("Check connection", type="primary"):
             st.json(res["account"])
         else:
             st.error(res["message"])
+
+st.divider()
+#st.subheader("📁 Access a Dropbox folder")
+
+# #folder_path = st.text_input(
+#     "Dropbox folder path",
+#     value="/",
+#     help="Example: /folder or /folder/2025"
+# )
+
+if st.button("List folder contents"):
+    if not token:
+        st.error("Please provide a Dropbox token.")
+    else:
+        with st.spinner("Listing folder..."):
+            res = list_dropbox_folder(token)
+            st.write(res)
+        if not res["ok"]:
+            st.error(res["error"])
+        else:
+            if not res["entries"]:
+                st.info("Folder is empty.")
+            else:
+                for e in res["entries"]:
+                    if isinstance(e, dropbox.files.FileMetadata):
+                        st.write(f"📄 **{e.name}**  ({e.size} bytes)")
+                    elif isinstance(e, dropbox.files.FolderMetadata):
+                        st.write(f"📁 **{e.name}/**")

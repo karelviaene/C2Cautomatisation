@@ -14,6 +14,8 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+
+
 #'/Users/juliakulpa/Library/CloudStorage/Dropbox-Arche/Julia Kulpa/new_DB_tests/Streamlit info/NextSDS API key.txt'
 db_path = '/Users/juliakulpa/Library/CloudStorage/Dropbox-Arche/Julia Kulpa/new_DB_tests/Database/C2Cdatabase.db'
 
