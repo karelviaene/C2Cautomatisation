@@ -60,7 +60,20 @@ st.header(
     Upload excel file with CAS numbers
     """)
 uploaded_file = st.file_uploader("Upload Excel file with CAS: A column with name CAS containing all CAS/EC numbers to screen in individual rows below. This should be on the first sheet.", type=["xlsx", "xlsm"])
-database_location = st.file_uploader("Upload a text file with database location in .txt", type=["txt"])
+#database_location = st.file_uploader("Upload a text file with database location in .txt", type=["txt"])
+
+database_location = st.text_input(
+    "Enter the full path to the SQLite database file",
+    placeholder="/Users/Library/new_DB_tests/Database/C2Cdatabase.db"
+)
+def strip_outer_quotes(s: str) -> str:
+    if not s:
+        return s
+    s = s.strip()
+    if (s.startswith("'") and s.endswith("'")) or (s.startswith('"') and s.endswith('"')):
+        return s[1:-1]
+    return s
+database_location = strip_outer_quotes(database_location)
 #st.selectbox
 
 # Uploading the excel with CAS numbers
@@ -111,11 +124,17 @@ if uploaded_file is not None:
 db_path = 0
 # Uploading the database location
 if database_location is not None:
-    db_path = database_location.read().decode("utf-8").strip()
-    if os.path.isfile(db_path):
-        st.success(f"Uploaded database directory: {db_path}")
-    else:
-        st.success(f":red[Database directory does not exist!!! Run button will only appear if you put the correct database directory]")
+    if database_location:
+        if not os.path.exists(database_location):
+            st.error("The specified path does not exist.")
+        elif not os.path.isfile(database_location):
+            st.error("The specified path is not a file.")
+        elif not database_location.lower().endswith(".db"):
+            st.error("The selected file is not a .db SQLite database.")
+        else:
+            db_path = database_location
+            st.success(f"Database found: {db_path}")
+            st.write(db_path)
 
 ### FUNCTIONS
 def make_a_backup(db_path):
