@@ -11,12 +11,14 @@ import re
 import pandas as pd
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.cell.cell import MergedCell
-from datetime import datetime
 from copy import copy
 from openpyxl import load_workbook, Workbook
 from pathlib import Path
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.worksheet.cell_range import CellRange
+from datetime import datetime, timedelta
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
 
 from streamlit import empty
 
@@ -137,15 +139,19 @@ if database_location is not None:
             st.write(db_path)
 
 ### FUNCTIONS
-def make_a_backup(db_path):
+def make_a_backup(db_path, backup_dir):
     try:
         connection = sqlite3.connect(db_path)
         st.write("Connected to SQLite database:", db_path)
 
         # Create date-stamped backup filename
         today = datetime.now().strftime("%Y-%m-%d")
-        base, ext = os.path.splitext(db_path)
-        backup_path = f"{base}_backup_from_{today}{ext}"
+        db_name = os.path.basename(db_path)
+        base, ext = os.path.splitext(db_name)
+        backup_filename = f"{base}_backup_from_{today}{ext}"
+
+        # Full backup path
+        backup_path = os.path.join(backup_dir, backup_filename)
 
         # Create backup connection
         backup_conn = sqlite3.connect(backup_path)
@@ -491,6 +497,7 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
             st.write("Connection closed.")
 def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
     excel_files_that_need_updating = []
+    CAS_older_than_3_years = []
     try:
         connection = sqlite3.connect(db_path)
         cursor = connection.cursor()
@@ -564,21 +571,44 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
                 excel_files_that_need_updating.append(inv_number)
 
             else:
-                db_last_update = row[0]  # ISO YYYY-MM-DD
+                db_last_update = row[0]  # ISO YYYY-MM-DD (string) or None
 
-                if db_last_update is None or db_last_update < last_update:
-                    # File is newer -> update
-                    cursor.execute(
-                        "UPDATE C2C_DATABASE SET LastUpdate = ?, FileName = ?, Comments = ? WHERE ID = ?",
-                        (last_update, filename, comments, inv_number)
-                    )
-                    st.write(f"CHANGED: inserted {inv_number}: {db_last_update} -> {last_update}")
-                    excel_files_that_need_updating.append(inv_number)
+                # CHECKING: if the CAS is 3-year or older (DB date) ---
+                three_years_ago = datetime.now() - timedelta(days=3 * 365)
 
+                if db_last_update is None:
+                    st.write(f"{inv_number}: No LastUpdate date available in DB")
                 else:
-                    # DB is newer or same -> skip
-                    st.write(f"NO ACTION NEEDED. CAS that are up to date {inv_number}: DB {db_last_update} >= file {last_update}.")
-        return excel_files_that_need_updating
+                    try:
+                        db_last_update_date = datetime.strptime(db_last_update, "%Y-%m-%d")
+                        if db_last_update_date < three_years_ago:
+                            st.write(f"{inv_number}: OLD CPS: DB LastUpdate is older than 3 years ({db_last_update})")
+                            CAS_older_than_3_years.append(inv_number)
+                        else:
+                            st.write(
+                                f"{inv_number}: NO ACTION NEEDED. DB LastUpdate is not older than 3 years {db_last_update_date} – good to go")
+
+                            ## Checks for the modifications if the CAS is not older than 3 years
+
+                            if db_last_update is None or db_last_update < last_update:
+                                # File is newer -> update
+                                cursor.execute(
+                                    "UPDATE C2C_DATABASE SET LastUpdate = ?, FileName = ?, Comments = ? WHERE ID = ?",
+                                    (last_update, filename, comments, inv_number)
+                                )
+                                st.write(
+                                    f"{inv_number}: CHANGED: inserted {inv_number}: {db_last_update} -> {last_update}")
+                                excel_files_that_need_updating.append(inv_number)
+
+                            else:
+                                # DB is newer or same -> skip
+                                st.write(
+                                    f"{inv_number}: NO ACTION NEEDED. CAS is up to date: DB {db_last_update} >= file {last_update}.")
+                    except ValueError:
+                        st.write(f"{inv_number}: WRONG DATE FORMAT: Invalid DB LastUpdate format ({db_last_update})")
+
+
+        return excel_files_that_need_updating, CAS_older_than_3_years
 
     finally:
         if connection:
@@ -2918,6 +2948,113 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 
     except sqlite3.Error as e:
         st.write("SQLite error:", e)
+def make_cas_report_excel(folder, *, base_name="Export_CAS", CASall=None, found=None, not_found=None, CAS_not_in_DB_but_in_excel=None,  CAS_not_in_DB_and_not_in_excel=None, CAS_older_than_3_years=None, CAS_needing_update=None, cas_with_up_to_date_info=None, cas_hazards=None, cas_with_no_json=None):
+    """
+    Creates an Excel report from the programme.
+    Saves it automatically as Export_CAS_{date}.xlsx (or _v2, _v3... if needed).
+    Returns the saved file path.
+    """
+
+    def _as_cell_text(value):
+        """
+        Converts function outputs to something Excel-friendly.
+        - None -> ""
+        - list/tuple/set -> newline-separated string
+        - dict -> pretty key: value lines
+        - everything else -> str(value)
+        """
+        if value is None:
+            return ""
+        if isinstance(value, dict):
+            return "\n".join([f"{k}: {v}" for k, v in value.items()])
+        if isinstance(value, (list, tuple, set)):
+            return "\n".join([str(x) for x in value])
+        return str(value)
+
+    def get_unique_export_filename(folder, base_name="Export_CAS", ext=".xlsx"):
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+        # Initial filename
+        filename = f"{base_name}_{date_str}{ext}"
+        full_path = os.path.join(folder, filename)
+
+        # If name exists, add _v2, _v3, ...
+        version = 2
+        while os.path.exists(full_path):
+            filename = f"{base_name}_{date_str}_v{version}{ext}"
+            full_path = os.path.join(folder, filename)
+            version += 1
+
+        return full_path
+
+    os.makedirs(folder, exist_ok=True)
+    out_path = get_unique_export_filename(folder, base_name=base_name, ext=".xlsx")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "CAS Report"
+
+    bold = Font(bold=True)
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 70
+
+    ws["A1"] = "Report of the CAS"
+    ws["A1"].font = bold
+
+    ws["A3"] = "Information"
+    ws["A3"].font = bold
+    ws["B3"] = "CAS"
+    ws["B3"].font = bold
+
+    ws["A4"] = "CAS analysed:"
+    ws["B4"] = _as_cell_text(CASall)
+
+    ws["A5"] = "CAS found in database:"
+    ws["B5"] = _as_cell_text(found)
+
+    ws["A6"] = "CAS not in database:"
+    ws["B6"] = _as_cell_text(not_found)
+
+    ws["A7"] = "New excel CPS added to DB for:"
+    ws["B7"] = _as_cell_text(CAS_not_in_DB_but_in_excel)
+
+    ws["A8"] = "CAS missing, need to be made:"
+    ws["A8"].font = Font(bold=True, color="FF0000")
+    ws["B8"] = _as_cell_text(CAS_not_in_DB_and_not_in_excel)
+    ws["B8"].font = Font(bold=True, color="FF0000")
+
+    ws["A9"] = "CPS older than 3 years for:"
+    ws["A9"].font = Font(bold=True, color="FF0000")
+    ws["B9"] = _as_cell_text(CAS_older_than_3_years)
+    ws["B9"].font = Font(bold=True, color="FF0000")
+
+    ws["A10"] = "CPS updated with new info from excel:"
+    ws["B10"] = _as_cell_text(CAS_needing_update)
+
+    ws["A11"] = "CnL info check"
+    ws["A11"].font = bold
+
+    ws["A12"] = "CnL info that is up to date:"
+    ws["B12"] = _as_cell_text(cas_with_up_to_date_info)
+
+    ws["A13"] = "CnL info is dfferent than in CPS for:"
+    ws["A13"].font = Font(bold=True, color="FF0000")
+    ws["B13"] = _as_cell_text(cas_hazards)
+    ws["B13"].font = Font(bold=True, color="FF0000")
+
+    ws["A14"] = "CnL info was not found for:"
+    ws["B14"] = _as_cell_text(cas_with_no_json)
+
+    for row in range(1, 16):
+        for col in range(1, 3):
+            cell = ws.cell(row=row, column=col)
+            if cell.value not in (None, ""):
+                cell.alignment = wrap
+
+    wb.save(out_path)
+    return out_path
 
 
 #### Create/update C2C database with CAS numbers from Excel files ####
@@ -2935,11 +3072,14 @@ if os.path.isfile(db_path):
     image_dir = os.path.join(project_root, "Chem_image")
     template_path = os.path.join(project_root, "Template", "CPS_CAS TEMPLATE V2.xlsm")
     folder_for_saving = os.path.join(project_root, "Downloads from Streamlit")
+    folder_for_saving_excel_exports = os.path.join(project_root, "Downloads from Streamlit", "Report exports")
+    folder_for_saving_CPS = os.path.join(project_root, "Downloads from Streamlit", "CPS downloads")
+    db_backup_for_saving = os.path.join(project_root, "Database", "Backups")
 
     if st.button(":green[Run the code to screen selected CAS]"):
         ### Beginning: before starting download all available json files and make a backup of the DB
         st.success(":blue[Creating a DB back up.]")
-        make_a_backup(db_path)
+        make_a_backup(db_path, db_backup_for_saving)
         st.success(":green[Back up complete.]")
         # json files download (first step to get new CnL info):
         st.success(":blue[Searching CnL website.]")
@@ -2977,11 +3117,12 @@ if os.path.isfile(db_path):
             # for CAS not in DB and not in Excel
             if CAS_not_in_DB_and_not_in_excel != []:
                 st.success(f":red[CAS missing from DB and not in the Excel files: {', '.join(CAS_not_in_DB_and_not_in_excel)}. They need to be added to DB.]")
-                st.write(f"Creating {', '.join(CAS_not_in_DB_and_not_in_excel)} as Excel files")
-                for CAS in CAS_not_in_DB_and_not_in_excel:
-                    extraction_info_excels(db_path, template_path, CAS, folder_for_saving, image_dir)
-                    st.toast(f"Excel file for {CAS} saved in your folder. Check it!")
-                    st.write(f"Excel file saved {CAS} in your folder.")
+                ### LATER OPTION TO CREATE CPS FILES FROM CNL
+                # st.write(f"Creating {', '.join(CAS_not_in_DB_and_not_in_excel)} as Excel files")
+                # for CAS in CAS_not_in_DB_and_not_in_excel:
+                #     extraction_info_excels(db_path, template_path, CAS, folder_for_saving_CPS, image_dir)
+                #     st.toast(f"Excel file for {CAS} saved in your folder. Check it!")
+                #     st.write(f"Excel file saved {CAS} in your folder.")
             else:
                 st.success("There are no CAS missing from DB and not in the Excel files.")
 
@@ -2992,7 +3133,9 @@ if os.path.isfile(db_path):
             CAS_in_folder, CAS_not_in_folder = check_if_excel_is_in_folder(folder_excels, found)
             if CAS_in_folder != []:
                 st.write(f"Excel with CAS found for: {', '.join(CAS_in_folder)}")
-                CAS_needing_update = is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_in_folder)
+                CAS_needing_update, CAS_older_than_3_years = is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_in_folder)
+                if CAS_older_than_3_years != []:
+                    st.success(f":red[CAS older than 3 years: {', '.join(CAS_older_than_3_years)}]")
                 if CAS_needing_update != []:
                     CAS_not_needing_update = [cas for cas in CAS_in_folder if cas not in CAS_needing_update]
                     st.success(f"CAS needing update: {', '.join(CAS_needing_update)}. CAS up to date: {', '.join(CAS_not_needing_update)} with info from Excel")
@@ -3000,14 +3143,17 @@ if os.path.isfile(db_path):
                     extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_update)
                     st.success(f"DB updated successfully with: {', '.join(CAS_needing_update)}")
                 else:
-                    st.success("All CAS are up to date with info from Excel.")
+                    if CAS_older_than_3_years == []:
+                        st.success("All CAS are up to date with info from Excel.")
+                    else:
+                        st.success(f":red[Make sure to check {', '.join(CAS_older_than_3_years)} - old]")
 
             if CAS_not_in_folder != []:
                 st.success(f":red[Those CAS are in DB but not as Excel files: {', '.join(CAS_not_in_folder)}. Making an Excel file in the folder]")
                 # creating an Excel with info that is in the DB
                 st.write("Generating an Excel file")
                 for CAS in CAS_not_in_folder:
-                    extraction_info_excels(db_path, template_path, CAS, folder_for_saving, image_dir)
+                    extraction_info_excels(db_path, template_path, CAS, folder_for_saving_CPS, image_dir)
                     st.toast("Excel file saved in your folder. Check it!")
                     st.write("Excel file saved in your folder.")
 
@@ -3028,6 +3174,21 @@ if os.path.isfile(db_path):
             st.success(f":red[CnL info changed for: {', '.join(cas_hazards_updated)}]")
             for k, v in cas_hazards_list.items():
                 st.write(f":red[{k},{v}]")
+
+        out_file = make_cas_report_excel(
+            folder= folder_for_saving_excel_exports,
+            CASall=CASall,
+            found=found,
+            not_found=not_found,
+            CAS_not_in_DB_but_in_excel=CAS_not_in_DB_but_in_excel,
+            CAS_not_in_DB_and_not_in_excel=CAS_not_in_DB_and_not_in_excel,
+            CAS_older_than_3_years=CAS_older_than_3_years,
+            CAS_needing_update=CAS_needing_update,
+            cas_with_up_to_date_info =cas_with_up_to_date_info,
+            cas_hazards=cas_hazards_list,
+            cas_with_no_json=cas_with_no_json,
+        )
+        st.success(f"Excel file with the documentation saved: {out_file}")
 
 # saving the DB as excel file if needed
 if os.path.isfile(db_path):

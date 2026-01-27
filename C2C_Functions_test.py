@@ -13,24 +13,175 @@ import time
 import os
 import re
 from datetime import datetime
-from pathlib import Path
+# from pathlib import Path
 
 
-#'/Users/juliakulpa/Library/CloudStorage/Dropbox-Arche/Julia Kulpa/new_DB_tests/Streamlit info/NextSDS API key.txt'
-db_path = '/Users/juliakulpa/Library/CloudStorage/Dropbox-Arche/Julia Kulpa/new_DB_tests/Database/C2Cdatabase.db'
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
+from openpyxl.utils import get_column_letter
 
-db_path_path = Path(db_path)
-project_root = db_path_path.parents[1] # goes to folder new_DB_tests
-print(project_root)
 
-api_key_path = project_root / "Streamlit info" / "NextSDS API key.txt"
-folder_excels = project_root / "CPS"
-save_json_dirr = project_root / "JSON"
-folder = folder_excels
-image_dir = project_root / "Chem_image"
-template_path = project_root / "Template" / "CPS_CAS TEMPLATE V2.xlsm"
-folder_for_saving = project_root / "Downloads from Streamlit"
-print(api_key_path)
+
+
+
+
+def make_cas_report_excel(
+    folder,
+    *,
+    base_name="Export_CAS",
+    CASall=None,
+    found=None,
+    not_found=None,
+    CAS_not_in_DB_but_in_excel=None,
+    CAS_not_in_DB_and_not_in_excel=None,
+    CAS_older_than_3_years=None,
+    CAS_needing_update=None,
+    cas_hazards=None,
+    cas_with_no_json=None,
+):
+    """
+    Creates an Excel report from the programme.
+    Saves it automatically as Export_CAS_{date}.xlsx (or _v2, _v3... if needed).
+    Returns the saved file path.
+    """
+
+    def _as_cell_text(value):
+        """
+        Converts function outputs to something Excel-friendly.
+        - None -> ""
+        - list/tuple/set -> newline-separated string
+        - dict -> pretty key: value lines
+        - everything else -> str(value)
+        """
+        if value is None:
+            return ""
+        if isinstance(value, dict):
+            return "\n".join([f"{k}: {v}" for k, v in value.items()])
+        if isinstance(value, (list, tuple, set)):
+            return "\n".join([str(x) for x in value])
+        return str(value)
+
+    def get_unique_export_filename(folder, base_name="Export_CAS", ext=".xlsx"):
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+        # Initial filename
+        filename = f"{base_name}_{date_str}{ext}"
+        full_path = os.path.join(folder, filename)
+
+        # If name exists, add _v2, _v3, ...
+        version = 2
+        while os.path.exists(full_path):
+            filename = f"{base_name}_{date_str}_v{version}{ext}"
+            full_path = os.path.join(folder, filename)
+            version += 1
+
+        return full_path
+
+    os.makedirs(folder, exist_ok=True)
+    out_path = get_unique_export_filename(folder, base_name=base_name, ext=".xlsx")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "CAS Report"
+
+    bold = Font(bold=True)
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 70
+
+    ws["A1"] = "Report of the CAS"
+    ws["A1"].font = bold
+
+    ws["A3"] = "Information"
+    ws["A3"].font = bold
+    ws["B3"] = "CAS"
+    ws["B3"].font = bold
+
+    ws["A4"] = "CAS analysed:"
+    ws["B4"] = _as_cell_text(CASall)
+
+    ws["A5"] = "CAS found in database:"
+    ws["B5"] = _as_cell_text(found)
+
+    ws["A6"] = "CAS not in database:"
+    ws["B6"] = _as_cell_text(not_found)
+
+    ws["A7"] = "New excel CPS added to DB for:"
+    ws["B7"] = _as_cell_text(CAS_not_in_DB_but_in_excel)
+
+    ws["A8"] = "CAS missing, need to be made:"
+    ws["A8"].font = Font(bold=True, color="FF0000")
+    ws["B8"] = _as_cell_text(CAS_not_in_DB_and_not_in_excel)
+    ws["B8"].font = Font(bold=True, color="FF0000")
+
+    ws["A9"] = "CPS older than 3 years for:"
+    ws["A9"].font = Font(bold=True, color="FF0000")
+    ws["B9"] = _as_cell_text(CAS_older_than_3_years)
+    ws["B9"].font = Font(bold=True, color="FF0000")
+
+    ws["A10"] = "CPS updated with new info from excel:"
+    ws["B10"] = _as_cell_text(CAS_needing_update)
+
+    ws["A12"] = "CnL info check"
+    ws["A12"].font = bold
+
+    ws["A13"] = "CnL info is dfferent than in CPS for:"
+    ws["A13"].font = Font(bold=True, color="FF0000")
+    ws["B13"] = _as_cell_text(cas_hazards)
+    ws["B13"].font = Font(bold=True, color="FF0000")
+
+    ws["A14"] = "CnL info was not found for:"
+    ws["B14"] = _as_cell_text(cas_with_no_json)
+
+    for row in range(1, 16):
+        for col in range(1, 3):
+            cell = ws.cell(row=row, column=col)
+            if cell.value not in (None, ""):
+                cell.alignment = wrap
+
+    wb.save(out_path)
+    return out_path
+
+# -------------------------
+# Example usage:
+# -------------------------
+if __name__ == "__main__":
+    out_file = make_cas_report_excel(
+        folder = "/Users/juliakulpa/Desktop/test-excel",
+        CASall = ["50-00-0", "64-17-5"],
+        found=["50-00-0", "64-17-5"],
+        not_found=["123-45-6"],
+        CAS_not_in_DB_but_in_excel=["71-43-2"],
+        CAS_not_in_DB_and_not_in_excel=["999-99-9"],
+        CAS_older_than_3_years=["50-00-0"],
+        CAS_needing_update=["64-17-5"],
+        cas_hazards=["50-00-0 (H351 mismatch)"],
+        cas_with_no_json=["123-45-6"],
+    )
+    print("Excel file with the documentation saved:", out_file)
+
+
+
+
+
+#
+#
+# #'/Users/juliakulpa/Library/CloudStorage/Dropbox-Arche/Julia Kulpa/new_DB_tests/Streamlit info/NextSDS API key.txt'
+# db_path = '/Users/juliakulpa/Library/CloudStorage/Dropbox-Arche/Julia Kulpa/new_DB_tests/Database/C2Cdatabase.db'
+#
+# db_path_path = Path(db_path)
+# project_root = db_path_path.parents[1] # goes to folder new_DB_tests
+# print(project_root)
+#
+# api_key_path = project_root / "Streamlit info" / "NextSDS API key.txt"
+# folder_excels = project_root / "CPS"
+# save_json_dirr = project_root / "JSON"
+# folder = folder_excels
+# image_dir = project_root / "Chem_image"
+# template_path = project_root / "Template" / "CPS_CAS TEMPLATE V2.xlsm"
+# folder_for_saving = project_root / "Downloads from Streamlit"
+# print(api_key_path)
 # def checking_if_CAS_exists(CASall, db_path):
 #     found = []
 #     not_found = []
