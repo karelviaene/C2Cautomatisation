@@ -1657,6 +1657,14 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
         st.write("Connection closed.")
 def save_DB_to_excel(db_path, DB_excel_saving_path):
     #### Save Database as Excel ####
+    def get_versioned_excel_path(folder, base_name, ext=".xlsx"):
+        version = 1
+        while True:
+            suffix = "" if version == 1 else f"_v{version}"
+            path = os.path.join(folder, f"{base_name}{suffix}{ext}")
+            if not os.path.exists(path):
+                return path
+            version += 1
     today = datetime.today().strftime("%Y%m%d")
     try:
         ### SQL SET-UP
@@ -1735,9 +1743,16 @@ def save_DB_to_excel(db_path, DB_excel_saving_path):
         df = sanitize_excel_cells(df)
 
         # Write away the database as Excel
-        with pd.ExcelWriter(DB_excel_saving_path + '/Database/C2Cdatabase ' + today + '.xlsx', engine='openpyxl') as writer:
+        export_folder = os.path.join(DB_excel_saving_path, "Database")
+        os.makedirs(export_folder, exist_ok=True)
+
+        base_name = f"C2Cdatabase {today}"
+        excel_path = get_versioned_excel_path(export_folder, base_name)
+
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="C2C DATABASE", index=False)
-        st.write(f"Database exported to Excel as C2Cdatabase{today}.xlsx")
+
+        st.write(f"Database exported to Excel as {os.path.basename(excel_path)}")
 
 
     except sqlite3.Error as e:
