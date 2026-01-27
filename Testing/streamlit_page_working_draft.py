@@ -140,6 +140,9 @@ if database_location is not None:
 
 ### FUNCTIONS
 def make_a_backup(db_path, backup_dir):
+    """Makes a backup of the DB with a date (in .db)
+    db_path = path to the DB that will be used,
+    backup_dir = path to the folder where backups will be saved"""
     try:
         connection = sqlite3.connect(db_path)
         st.write("Connected to SQLite database:", db_path)
@@ -169,6 +172,11 @@ def make_a_backup(db_path, backup_dir):
             connection.close()
             st.write("Connection closed.")
 def check_json(CASall, API_key, save_json_dirr):
+    """Makes a json file for CnL data that it has scraped before
+    CASall = CAS numbers
+    API key  = API key
+    save_json_dirr = place where json files are saved
+    """
     st.write('Checking API')
 
     # Load the API key from file: It's on the dropbox under Science/Data searches/ED screener/input databases/NextSDS API key.txt
@@ -243,6 +251,12 @@ def check_json(CASall, API_key, save_json_dirr):
         json.dump(CnL_json, json_file, indent=2)
     return CnL_json
 def checking_if_CAS_exists(CASall, db_path):
+    """ a function that checks if the CAS number exists in the database
+    CASall = CAS numbers,
+    db_path = path to database
+    outputs:
+    found: CAS in DB
+    not_found: CAS not found in DB"""
     found = []
     not_found = []
 
@@ -280,6 +294,12 @@ def checking_if_CAS_exists(CASall, db_path):
 
     return found, not_found
 def check_if_excel_is_in_folder(folder_excels, CAS_list):
+    """checks if the CAS in the list is in the CPS folder with CPS excels
+    folder_excels = folder with CPS files
+    CAS_list = list of CAS numbers to check for
+    outputs:
+    CAS_in_folder: list of CAS numbers in the CPS folder
+    CAS_not_in_folder: list of CAS numbers not in the CPS folder"""
     CAS_in_folder = []
     CAS_not_in_folder = []
 
@@ -317,6 +337,9 @@ def check_if_excel_is_in_folder(folder_excels, CAS_list):
 
     return CAS_in_folder, CAS_not_in_folder
 def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
+    """From json file this function checks if the info in DB is recent (the same as in ECHA CnL).
+    cas_hazards is the output of the things that have been altered, it is a dictionary that has the CAS number and the changes.
+    sometimes json are not created for a cas, then they will fo to cas_with_no_json. In such case you can also try rerunning the programme to get the jsons."""
     data = CnL_json
     cas_hazards = {} # used later to create a list of things to update
     cas_with_no_json = []
@@ -496,6 +519,9 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
             connection.close()
             st.write("Connection closed.")
 def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
+    """Checks if DB is up to date with excel file CPS.
+    1. Checks if the LastUpdate date is not older than 3 years ( if you want to change to 1 or 2 use this function)
+    2. Checks if the date modified in the CPS excel is the same if in the DB if not it will say which excels need updating"""
     excel_files_that_need_updating = []
     CAS_older_than_3_years = []
     try:
@@ -573,8 +599,10 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
             else:
                 db_last_update = row[0]  # ISO YYYY-MM-DD (string) or None
 
-                # CHECKING: if the CAS is 3-year or older (DB date) ---
+                # CHECKING: if the CAS is 3-year or older (DB date)
+                # in case you want to use other benchmark just change the timedelta option
                 three_years_ago = datetime.now() - timedelta(days=3 * 365)
+
 
                 if db_last_update is None:
                     st.write(f"{inv_number}: No LastUpdate date available in DB")
@@ -616,6 +644,11 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
             connection.close()
         st.write("Connection closed.")
 def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update):
+    ''' This function extracts the excel CPS data to the DB. It does it with the functions below.
+    db_path = path to the current DB
+    folder_excels = CPS folder,
+    CAS_needing_DB_update = list of CAS numbers for which the date modfied is different in DB (made with the function above)'''
+
     #### CUSTOM FUNCTIONS ####
     def add_info_CPS_below(sheet, search_strings, maindatabase, newdatabase, mainID):
         """
@@ -1656,6 +1689,9 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             connection.close()
         st.write("Connection closed.")
 def save_DB_to_excel(db_path, DB_excel_saving_path):
+    """Saving DB as a master excel in Streamlit
+    db_path = path to current DB
+    DB_excel_saving_path = path to excel export of DB"""
     #### Save Database as Excel ####
     def get_versioned_excel_path(folder, base_name, ext=".xlsx"):
         version = 1
@@ -1773,7 +1809,13 @@ def save_DB_to_excel(db_path, DB_excel_saving_path):
         except NameError:
             pass
 def extraction_info_excels(database, template_path, CAS, folder, image_dir):
-    '''Function saves CAS from DB to excel'''
+    '''Function saves CAS from DB to excel CPS format. This can be done if there is a CAS that is in DB but not in CPS excel folder
+    database = path to DB
+    template_path = path to the excel template (very importnant!),
+    CAS = CAS number,
+    folder = folder for saving,
+    image_dir = folder with images. The images need to have names CPS_CAS {number}
+    '''
     def db_to_excel_multiple_below(maindb, main_ref, linked_db, link_ref, column_to_get, lookup_column, lookup_value,
                                    label_excel):
 
@@ -2965,9 +3007,12 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
         st.write("SQLite error:", e)
 def make_cas_report_excel(folder, *, base_name="Export_CAS", CASall=None, found=None, not_found=None, CAS_not_in_DB_but_in_excel=None,  CAS_not_in_DB_and_not_in_excel=None, CAS_older_than_3_years=None, CAS_needing_update=None, cas_with_up_to_date_info=None, cas_hazards=None, cas_with_no_json=None):
     """
-    Creates an Excel report from the programme.
+    Creates an Excel report from the programme run.
     Saves it automatically as Export_CAS_{date}.xlsx (or _v2, _v3... if needed).
-    Returns the saved file path.
+    Returns the saved file at a location.
+    function variables correspond to the things we want to save (also later in coding the
+    Excel eg A1 = CASall etc., if you want to add more things to the excel expand the function.
+    Remember the sub function _as_cell_text enables to convert the output of funcitons to text in Excel
     """
 
     def _as_cell_text(value):
