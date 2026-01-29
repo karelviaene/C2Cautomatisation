@@ -5,8 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="saving changes">
+      <change afterPath="$PROJECT_DIR$/C2C_info_from_ECHACHEM_to_separate_tables_in_DB.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page_working_draft.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_page_working_draft.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C2C_Functions_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/C2C_Functions_test.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -332,7 +333,15 @@
       <option name="project" value="LOCAL" />
       <updated>1769520633702</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="saving changes">
+      <option name="closed" value="true" />
+      <created>1769524319828</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1769524319828</updated>
+    </task>
+    <option name="localTasksCounter" value="31" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
