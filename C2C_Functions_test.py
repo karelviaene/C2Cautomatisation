@@ -144,11 +144,81 @@ def create_dictionary_of_cas_and_hazards(excel_path, db_path, cas_list):
     return result
 
 
+def make_dictionary_of_hazards_and_location_in_template_1(excel_path, sheet_name=0):
+    """
+    Reads an Excel file where:
+      - Column B header = 'Template name'
+      - Column C header = 'Template location'
+
+    Returns:
+      dict {Template location: [Template name A, Template name B, Template name C, ...]}
+    """
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    # Normalize column names
+    df.columns = df.columns.str.strip()
+
+    if "Template name" not in df.columns or "Template location" not in df.columns:
+        raise ValueError(
+            "Excel must contain columns 'Template name' and 'Template location'"
+        )
+
+    mapping = {}
+
+    for _, row in df.iterrows():
+        template_name = row["Template name"]
+        template_location = row["Template location"]
+
+        if pd.isna(template_name) or pd.isna(template_location):
+            continue  # skip empty rows
+
+        template_name = str(template_name).strip()
+        template_location = str(template_location).strip()
+
+        # Append template name under the same location
+        mapping.setdefault(template_location, []).append(template_name)
+
+    return mapping
+
+def make_dictionary_of_hazards_and_location_in_template(excel_path, sheet_name=0):
+    """
+    Reads an Excel file where:
+      - Column B header = 'Template name'
+      - Column C header = 'Template location'
+
+    Returns:
+      dict {Template name: Template location}
+    """
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    # Normalize column names (strip spaces)
+    df.columns = df.columns.str.strip()
+
+    if "Template name" not in df.columns or "Template location" not in df.columns:
+        raise ValueError(
+            "Excel must contain columns 'Template name' and 'Template location'"
+        )
+
+    mapping = {}
+
+    for _, row in df.iterrows():
+        template_name = row["Template name"]
+        template_location = row["Template location"]
+
+        if pd.isna(template_name) or pd.isna(template_location):
+            continue  # skip empty rows
+
+        mapping[str(template_name).strip()] = str(template_location).strip()
+
+    return mapping
 excel_path = "/Users/juliakulpa/Library/CloudStorage/Dropbox-Arche/Julia Kulpa/automation/CnL - info for dictionary/CnL - information.xlsx"
 db_path = '/Users/juliakulpa/Library/CloudStorage/Dropbox-Arche/Julia Kulpa/automation/CnL - info for dictionary/C2Cdatabase.db'
 cas_list = ["50-00-0", "64-17-5", "71-43-2"]
 function = create_dictionary_of_cas_and_hazards(excel_path, db_path, cas_list)
 print(function)
+
+hazards_location = make_dictionary_of_hazards_and_location_in_template(excel_path)
+print(hazards_location)
 #
 # ## excel with exports
 # def make_cas_report_excel(
