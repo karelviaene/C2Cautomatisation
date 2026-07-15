@@ -17,7 +17,6 @@ from openpyxl import load_workbook, Workbook
 from pathlib import Path
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.worksheet.cell_range import CellRange
-
 from streamlit import empty
 
 st.title("ARCHE CAS database")
@@ -1393,6 +1392,172 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                     [mainID] + list(extracted_data.values())
                 )
 
+    # Function to extract manual assessment if present from the CPS excel file as a df
+    def extract_info_from_manual_assessment(ref, value_col, file_path):
+        wanted_names = [
+            "Carcinogenicity",
+            "Disruption of endocrine system",
+            "Mutagenicity/genotoxicity",
+            "Reproductive toxicity",
+            "Development toxicity",
+            "Neurotoxicity",
+            "Oral toxicity",
+            "Inhalative toxicity",
+            "Dermal toxicity",
+            "Skin, Eye, Respiratory corrosion/irritation",
+            "Sensitization",
+            "Fish toxicity",
+            "Invertebrate toxicity",
+            "Algae toxicity",
+            "Terrestrial toxicity",
+            "Other species toxicity",
+            "Persistence",
+            "Bioaccumulation",
+            "Combined PB risk flag",
+            "Combined aquatic risk flag",
+            "Climatic relevance/ozone depletion potential",
+        ]
+
+        def clean_col_name(name):
+            return (
+                name.strip()
+                .lower()
+                .replace(" ", "_")
+                .replace("-", "_")
+                .replace(".", "_")
+                .replace("/", "_")
+                .replace(",", "")
+            )
+
+        def get_value_even_if_merged(ws, cell_address):
+            cell = ws[cell_address]
+
+            if cell.value is not None:
+                return cell.value
+
+            for merged_range in ws.merged_cells.ranges:
+                if cell.coordinate in merged_range:
+                    top_left_cell = ws.cell(
+                        row=merged_range.min_row,
+                        column=merged_range.min_col
+                    )
+                    return top_left_cell.value
+
+            return None
+
+        wb = load_workbook(file_path, data_only=True)
+        ws = wb.active
+
+        result = {
+            "ref": ref,
+        }
+
+        for row in range(1, ws.max_row + 1):
+            value_a = get_value_even_if_merged(ws, f"A{row}")
+
+            if value_a is None:
+                continue
+
+            value_a_text = str(value_a).strip()
+
+            for wanted in wanted_names:
+                if wanted.lower() in value_a_text.lower():
+                    sql_col_name = "C2C_assessment_" + clean_col_name(wanted)
+
+                    value_i = get_value_even_if_merged(ws, f"{value_col}{row}")
+
+                    result[sql_col_name] = value_i
+
+        return pd.DataFrame([result])
+    # Function to put the df into a table in SQL (and update it if needed) for the manual assessment C2C
+    def save_or_replace_if_changed(df, conn, table_name, ref, ref_col="ref"):
+        df = df.copy()
+
+        # Add ref if not already present
+        df[ref_col] = ref
+
+        # Put ref first
+        first_cols = [ref_col]
+        other_cols = [col for col in df.columns if col not in first_cols]
+        df = df[first_cols + other_cols]
+
+        # print("Connecting to the database")
+        # print(f"Working on {ref}")
+        # conn = sqlite3.connect(db_path)
+
+        # Check if table exists
+        table_exists = pd.read_sql_query(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+            conn,
+            params=(table_name,)
+        )
+
+        if table_exists.empty:
+            df.to_sql(table_name, conn, if_exists="replace", index=False)
+            print(f"New table created {table_name}")
+            conn.close()
+            return
+
+        # Read existing table columns
+        existing_table = pd.read_sql_query(
+            f'SELECT * FROM "{table_name}" LIMIT 0',
+            conn
+        )
+
+        existing_cols = existing_table.columns.tolist()
+
+        # Add missing columns to df
+        for col in existing_cols:
+            if col not in df.columns:
+                df[col] = pd.NA
+
+        # Add new df columns to SQL table if needed
+        new_cols = [col for col in df.columns if col not in existing_cols]
+
+        for col in new_cols:
+            conn.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col}" TEXT')
+            existing_cols.append(col)
+
+        # Reorder df to match SQL table
+        df = df[existing_cols]
+
+        # Check if this ref already exists
+        old_df = pd.read_sql_query(
+            f'SELECT * FROM "{table_name}" WHERE "{ref_col}" = ?',
+            conn,
+            params=(ref,)
+        )
+
+        if old_df.empty:
+            df.to_sql(table_name, conn, if_exists="append", index=False)
+            print(f"New record added {ref}")
+
+        else:
+            old_row = old_df.iloc[0]
+            new_row = df.iloc[0]
+
+            # Align and compare
+            new_row = new_row[old_row.index]
+
+            old_compare = old_row.fillna("").astype(str)
+            new_compare = new_row.fillna("").astype(str)
+
+            if old_compare.equals(new_compare):
+                print("No change needed")
+
+            else:
+                conn.execute(
+                    f'DELETE FROM "{table_name}" WHERE "{ref_col}" = ?',
+                    (ref,)
+                )
+
+                df.to_sql(table_name, conn, if_exists="append", index=False)
+                print(f"Data has changed, updating")
+
+        # conn.commit()
+        # conn.close()
+        # print("Closing the database")
+
     try:
         ### SQL SET-UP
         connection = sqlite3.connect(db_path)
@@ -1615,6 +1780,12 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 add_info_CPS_right_until_empty(CPSsheet, add_sources, [1], [add_sources],
                                    "C2C_DATABASE", "ADDSOURCE", inv_number)
 
+            # COLOUR ASSESSMENT
+            df_c2c_hazards = extract_info_from_manual_assessment(ref = inv_number, value_col = "I", file_path = full_path)
+            st.write(df_c2c_hazards)
+            save_or_replace_if_changed(df=df_c2c_hazards,conn=connection,table_name="COLOUR ASSESSMENT C2C",ref=inv_number)
+            st.write("Hazards added.")
+
         connection.commit()
         st.write("SQL updated")
     except sqlite3.Error as e:
@@ -1625,6 +1796,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             connection.commit()
             connection.close()
         st.write("Connection closed.")
+
 def save_DB_to_excel(db_path, DB_excel_saving_path):
     #### Save Database as Excel ####
     today = datetime.today().strftime("%Y%m%d")
