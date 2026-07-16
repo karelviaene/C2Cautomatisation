@@ -1,3 +1,5 @@
+from typing import Any
+
 import streamlit as st
 import traceback
 import requests
@@ -75,6 +77,7 @@ def strip_outer_quotes(s: str) -> str:
 database_location = strip_outer_quotes(database_location)
 #st.selectbox
 
+CASall = []
 # Uploading the excel with CAS numbers
 if uploaded_file is not None:
     # write if the file was uploaded
@@ -3091,6 +3094,8 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
     except sqlite3.Error as e:
         st.write("SQLite error:", e)
 
+CAS_not_in_DB_but_in_excel = []
+
 
 #### Create/update C2C database with CAS numbers from Excel files ####
 # if connceted to database you can press run
@@ -3124,30 +3129,30 @@ if os.path.isfile(db_path):
         # not_found => CAS not in DB
         found, not_found = checking_if_CAS_exists(CASall, db_path)
         st.success(":blue[Searching if CAS is in the database.]")
-        if found != []:
+        if found:
             st.success(f"CAS found in database: {', '.join(found)}")
         else:
             st.success(f"None of the CAS found in database.")
-        if not_found != []:
+        if not_found:
             st.success(f"CAS not in database: {', '.join(not_found)}")
         else:
             st.success(f"All CAS are in DB")
 
         ### for CAS numbers that are NOT in the database (not_found)
-        if not_found != []:
+        if not_found:
             st.success(f":blue[For CAS not found in database {', '.join(not_found)}. Searching if CAS is in the Excel file.]")
             # check if there is an Excel file with the given CAS
             CAS_not_in_DB_but_in_excel, CAS_not_in_DB_and_not_in_excel = check_if_excel_is_in_folder(folder_excels, not_found)
 
             # for CAS found as an Excel file
-            if CAS_not_in_DB_but_in_excel != []:
+            if CAS_not_in_DB_but_in_excel:
                 st.write(f"CAS found as an Excel: {', '.join(CAS_not_in_DB_but_in_excel)}. They need to be added to DB")
                 st.write(f"Updating DB to add {', '.join(CAS_not_in_DB_but_in_excel)}")
                 extract_info_form_excel_to_DB(db_path, folder_excels, CAS_not_in_DB_but_in_excel)
                 st.success(f"DB updated successfully with {', '.join(CAS_not_in_DB_but_in_excel)}")
             else: st.success("There are no new Excel files for CAS not found in database.")
             # for CAS not in DB and not in Excel
-            if CAS_not_in_DB_and_not_in_excel != []:
+            if CAS_not_in_DB_and_not_in_excel:
                 st.success(f":red[CAS missing from DB and not in the Excel files: {', '.join(CAS_not_in_DB_and_not_in_excel)}. They need to be added to DB.]")
                 st.write(f"Creating {', '.join(CAS_not_in_DB_and_not_in_excel)} as Excel files")
                 for CAS in CAS_not_in_DB_and_not_in_excel:
@@ -3158,14 +3163,14 @@ if os.path.isfile(db_path):
                 st.success("There are no CAS missing from DB and not in the Excel files.")
 
         ### for CAS numbers that are in the database (found)
-        if found != []:
+        if found:
             st.success(f":blue[For CAS found in database {', '.join(found)}. Searching if CAS is in the Excel file and if the info is up to date.]")
             # check if there is an Excel file with the given CAS
             CAS_in_folder, CAS_not_in_folder = check_if_excel_is_in_folder(folder_excels, found)
-            if CAS_in_folder != []:
+            if CAS_in_folder:
                 st.write(f"Excel with CAS found for: {', '.join(CAS_in_folder)}")
                 CAS_needing_update = is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_in_folder)
-                if CAS_needing_update != []:
+                if CAS_needing_update:
                     CAS_not_needing_update = [cas for cas in CAS_in_folder if cas not in CAS_needing_update]
                     st.success(f"CAS needing update: {', '.join(CAS_needing_update)}. CAS up to date: {', '.join(CAS_not_needing_update)} with info from Excel")
                     st.write(f"CAS needing update: {', '.join(CAS_needing_update)} will be updated now.")
@@ -3174,7 +3179,7 @@ if os.path.isfile(db_path):
                 else:
                     st.success("All CAS are up to date with info from Excel.")
 
-            if CAS_not_in_folder != []:
+            if CAS_not_in_folder:
                 st.success(f":red[Those CAS are in DB but not as Excel files: {', '.join(CAS_not_in_folder)}. Making an Excel file in the folder]")
                 # creating an Excel with info that is in the DB
                 st.write("Generating an Excel file")
@@ -3185,7 +3190,10 @@ if os.path.isfile(db_path):
 
         ### Checking info from ECHA CnL
         # add together all the CAS for which CnL will be checked
-        all_CAS_to_check_CnL = found + CAS_not_in_DB_but_in_excel
+        if CAS_not_in_DB_but_in_excel:
+            all_CAS_to_check_CnL = found + CAS_not_in_DB_but_in_excel
+        else:
+            all_CAS_to_check_CnL = found
         st.success(f":blue[CnL info will be checked]")
         st.success(f"CnL info will be checked for: {', '.join(all_CAS_to_check_CnL)}")
         cas_hazards_list, cas_with_no_json = insert_json_info_to_DB(CnL_json, db_path, all_CAS_to_check_CnL)

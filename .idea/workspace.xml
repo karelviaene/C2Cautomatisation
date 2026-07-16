@@ -4,9 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="saving changes">
-      <change beforePath="$PROJECT_DIR$/.idea/C2Cautomatisation.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/C2Cautomatisation.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="Streamlit function to also take the colour assessments">
+      <change afterPath="$PROJECT_DIR$/Downloads/test-excel/Export_CAS_2026-01-27.xlsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Testing/streamlit_page_different_DB_selection.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_page_different_DB_selection.py" afterDir="false" />
     </list>
@@ -367,7 +366,15 @@
       <option name="project" value="LOCAL" />
       <updated>1769703977990</updated>
     </task>
-    <option name="localTasksCounter" value="34" />
+    <task id="LOCAL-00034" summary="Streamlit function to also take the colour assessments">
+      <option name="closed" value="true" />
+      <created>1784108981330</created>
+      <option name="number" value="00034" />
+      <option name="presentableId" value="LOCAL-00034" />
+      <option name="project" value="LOCAL" />
+      <updated>1784108981330</updated>
+    </task>
+    <option name="localTasksCounter" value="35" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -402,7 +409,8 @@
     <MESSAGE value="streamlit update" />
     <MESSAGE value="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml" />
     <MESSAGE value="saving changes" />
-    <option name="LAST_COMMIT_MESSAGE" value="saving changes" />
+    <MESSAGE value="Streamlit function to also take the colour assessments" />
+    <option name="LAST_COMMIT_MESSAGE" value="Streamlit function to also take the colour assessments" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
