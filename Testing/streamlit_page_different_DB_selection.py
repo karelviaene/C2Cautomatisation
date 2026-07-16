@@ -1786,7 +1786,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             # COLOUR ASSESSMENT
             df_c2c_hazards = extract_info_from_manual_assessment(ref = inv_number, value_col = "I", file_path = full_path)
             st.write(df_c2c_hazards)
-            save_or_replace_if_changed(df=df_c2c_hazards,conn=connection,table_name="COLOUR ASSESSMENT C2C",ref=inv_number)
+            save_or_replace_if_changed(df=df_c2c_hazards,conn=connection,table_name="COLOUR_ASSESSMENT_C2C",ref=inv_number)
             st.write("Hazards added.")
 
         connection.commit()
