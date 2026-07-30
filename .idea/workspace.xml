@@ -5,30 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="Correction of streamlit_page_different_DB_selection.py">
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.gitattributes" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/.gitignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/dictionaries/project.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/mas_automation.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automation.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automation_app.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automation_app_tests.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automation_v2.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automoation_with_mixture_rules.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_generation.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_generator_app.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/assign_colours_c2c.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/extract_manual_assessment_from_CPS.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/initial_tests/MAS_automation_tests.ipynb" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/initial_tests/corrosion_irritation_c2c_tests.ipynb" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/initial_tests/hazrads_to_c2c_tests.ipynb" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/initial_tests/tests.ipynb" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/mixture_rules_c2c.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/mixture_rules_clp_classification.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/ARCHIVE_streamlit_page_old.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page_different_DB_selection.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/ARCHIVE_streamlit_page_different_DB_selection_old.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page_working_draft.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_DB_communication_CURRENT.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -90,6 +70,7 @@
     "Python.Dropbox API test.executor": "Run",
     "Python.Functions-tests.executor": "Run",
     "Python.SMILESlookup.executor": "Run",
+    "Python.streamlit_DB_communication_CURRENT.executor": "Run",
     "Python.streamlit_page.executor": "Run",
     "Python.streamlit_page_different_DB_selection.executor": "Run",
     "Python.streamlit_page_with_dropbox.executor": "Run",
@@ -406,7 +387,23 @@
       <option name="project" value="LOCAL" />
       <updated>1784204985815</updated>
     </task>
-    <option name="localTasksCounter" value="36" />
+    <task id="LOCAL-00036" summary="Correction of streamlit_page_different_DB_selection.py">
+      <option name="closed" value="true" />
+      <created>1785403943536</created>
+      <option name="number" value="00036" />
+      <option name="presentableId" value="LOCAL-00036" />
+      <option name="project" value="LOCAL" />
+      <updated>1785403943536</updated>
+    </task>
+    <task id="LOCAL-00037" summary="Correction of streamlit_page_different_DB_selection.py">
+      <option name="closed" value="true" />
+      <created>1785403949350</created>
+      <option name="number" value="00037" />
+      <option name="presentableId" value="LOCAL-00037" />
+      <option name="project" value="LOCAL" />
+      <updated>1785403949350</updated>
+    </task>
+    <option name="localTasksCounter" value="38" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

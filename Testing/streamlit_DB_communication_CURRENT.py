@@ -1,5 +1,3 @@
-from typing import Any
-
 import streamlit as st
 import traceback
 import requests
@@ -13,13 +11,17 @@ import re
 import pandas as pd
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.cell.cell import MergedCell
-from datetime import datetime
 from copy import copy
 from openpyxl import load_workbook, Workbook
 from pathlib import Path
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.worksheet.cell_range import CellRange
-from streamlit import empty
+from datetime import datetime, timedelta, date
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
+import re
+from decimal import Decimal
+from openpyxl.worksheet.formula import ArrayFormula
 
 st.title("ARCHE CAS database")
 # text
@@ -139,15 +141,22 @@ if database_location is not None:
             st.write(db_path)
 
 ### FUNCTIONS
-def make_a_backup(db_path):
+def make_a_backup(db_path, backup_dir):
+    """Makes a backup of the DB with a date (in .db)
+    db_path = path to the DB that will be used,
+    backup_dir = path to the folder where backups will be saved"""
     try:
         connection = sqlite3.connect(db_path)
         st.write("Connected to SQLite database:", db_path)
 
         # Create date-stamped backup filename
         today = datetime.now().strftime("%Y-%m-%d")
-        base, ext = os.path.splitext(db_path)
-        backup_path = f"{base}_backup_from_{today}{ext}"
+        db_name = os.path.basename(db_path)
+        base, ext = os.path.splitext(db_name)
+        backup_filename = f"{base}_backup_from_{today}{ext}"
+
+        # Full backup path
+        backup_path = os.path.join(backup_dir, backup_filename)
 
         # Create backup connection
         backup_conn = sqlite3.connect(backup_path)
@@ -165,6 +174,11 @@ def make_a_backup(db_path):
             connection.close()
             st.write("Connection closed.")
 def check_json(CASall, API_key, save_json_dirr):
+    """Makes a json file for CnL data that it has scraped before
+    CASall = CAS numbers
+    API key  = API key
+    save_json_dirr = place where json files are saved
+    """
     st.write('Checking API')
 
     # Load the API key from file: It's on the dropbox under Science/Data searches/ED screener/input databases/NextSDS API key.txt
@@ -239,6 +253,12 @@ def check_json(CASall, API_key, save_json_dirr):
         json.dump(CnL_json, json_file, indent=2)
     return CnL_json
 def checking_if_CAS_exists(CASall, db_path):
+    """ a function that checks if the CAS number exists in the database
+    CASall = CAS numbers,
+    db_path = path to database
+    outputs:
+    found: CAS in DB
+    not_found: CAS not found in DB"""
     found = []
     not_found = []
 
@@ -276,6 +296,12 @@ def checking_if_CAS_exists(CASall, db_path):
 
     return found, not_found
 def check_if_excel_is_in_folder(folder_excels, CAS_list):
+    """checks if the CAS in the list is in the CPS folder with CPS excels
+    folder_excels = folder with CPS files
+    CAS_list = list of CAS numbers to check for
+    outputs:
+    CAS_in_folder: list of CAS numbers in the CPS folder
+    CAS_not_in_folder: list of CAS numbers not in the CPS folder"""
     CAS_in_folder = []
     CAS_not_in_folder = []
 
@@ -313,6 +339,9 @@ def check_if_excel_is_in_folder(folder_excels, CAS_list):
 
     return CAS_in_folder, CAS_not_in_folder
 def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
+    """From json file this function checks if the info in DB is recent (the same as in ECHA CnL).
+    cas_hazards is the output of the things that have been altered, it is a dictionary that has the CAS number and the changes.
+    sometimes json are not created for a cas, then they will fo to cas_with_no_json. In such case you can also try rerunning the programme to get the jsons."""
     data = CnL_json
     cas_hazards = {} # used later to create a list of things to update
     cas_with_no_json = []
@@ -492,7 +521,11 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
             connection.close()
             st.write("Connection closed.")
 def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
+    """Checks if DB is up to date with excel file CPS.
+    1. Checks if the LastUpdate date is not older than 3 years ( if you want to change to 1 or 2 use this function)
+    2. Checks if the date modified in the CPS excel is the same if in the DB if not it will say which excels need updating"""
     excel_files_that_need_updating = []
+    CAS_older_than_3_years = []
     try:
         connection = sqlite3.connect(db_path)
         cursor = connection.cursor()
@@ -566,21 +599,46 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
                 excel_files_that_need_updating.append(inv_number)
 
             else:
-                db_last_update = row[0]  # ISO YYYY-MM-DD
+                db_last_update = row[0]  # ISO YYYY-MM-DD (string) or None
 
-                if db_last_update is None or db_last_update < last_update:
-                    # File is newer -> update
-                    cursor.execute(
-                        "UPDATE C2C_DATABASE SET LastUpdate = ?, FileName = ?, Comments = ? WHERE ID = ?",
-                        (last_update, filename, comments, inv_number)
-                    )
-                    st.write(f"CHANGED: inserted {inv_number}: {db_last_update} -> {last_update}")
-                    excel_files_that_need_updating.append(inv_number)
+                # CHECKING: if the CAS is 3-year or older (DB date)
+                # in case you want to use other benchmark just change the timedelta option
+                three_years_ago = datetime.now() - timedelta(days=3 * 365)
 
+
+                if db_last_update is None:
+                    st.write(f"{inv_number}: No LastUpdate date available in DB")
                 else:
-                    # DB is newer or same -> skip
-                    st.write(f"NO ACTION NEEDED. CAS that are up to date {inv_number}: DB {db_last_update} >= file {last_update}.")
-        return excel_files_that_need_updating
+                    try:
+                        db_last_update_date = datetime.strptime(db_last_update, "%Y-%m-%d")
+                        if db_last_update_date < three_years_ago:
+                            st.write(f"{inv_number}: OLD CPS: DB LastUpdate is older than 3 years ({db_last_update})")
+                            CAS_older_than_3_years.append(inv_number)
+                        else:
+                            st.write(
+                                f"{inv_number}: NO ACTION NEEDED. DB LastUpdate is not older than 3 years {db_last_update_date} – good to go")
+
+                            ## Checks for the modifications if the CAS is not older than 3 years
+
+                            if db_last_update is None or db_last_update < last_update:
+                                # File is newer -> update
+                                cursor.execute(
+                                    "UPDATE C2C_DATABASE SET LastUpdate = ?, FileName = ?, Comments = ? WHERE ID = ?",
+                                    (last_update, filename, comments, inv_number)
+                                )
+                                st.write(
+                                    f"{inv_number}: CHANGED: inserted {inv_number}: {db_last_update} -> {last_update}")
+                                excel_files_that_need_updating.append(inv_number)
+
+                            else:
+                                # DB is newer or same -> skip
+                                st.write(
+                                    f"{inv_number}: NO ACTION NEEDED. CAS is up to date: DB {db_last_update} >= file {last_update}.")
+                    except ValueError:
+                        st.write(f"{inv_number}: WRONG DATE FORMAT: Invalid DB LastUpdate format ({db_last_update})")
+
+
+        return excel_files_that_need_updating, CAS_older_than_3_years
 
     finally:
         if connection:
@@ -588,6 +646,11 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
             connection.close()
         st.write("Connection closed.")
 def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update):
+    ''' This function extracts the excel CPS data to the DB. It does it with the functions below.
+    db_path = path to the current DB
+    folder_excels = CPS folder,
+    CAS_needing_DB_update = list of CAS numbers for which the date modfied is different in DB (made with the function above)'''
+
     #### CUSTOM FUNCTIONS ####
     def add_info_CPS_below(sheet, search_strings, maindatabase, newdatabase, mainID):
         """
@@ -1150,19 +1213,45 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                     f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
                     [mainID] + list(extracted_data.values())
                 )
+
     def add_info_right_two_markers_OECD(sheet, label1: str, label2: str, maindatabase, newdatabase, mainID, include_resource: bool = True):
         """
         label 1 - first row to match
         label 2 - second row to match
+
         1) Find a row where two adjacent cells match (label1, label2) left→right.
         2) Capture first non-empty cell to the right of label2.
         3) Write to SQL columns named: {label1}{label2}
 
         Optional behavior (when include_resource=True):
-          - Captures the sheet's 'Resource' column value (if present and not empty)
+          - Captures the sheet's 'Resource' column value, if present and not empty,
             into SQL column 'resource-<sanitized label2>' for the same row.
-          - If no 'Resource' column exists or the cell is empty, skips creating that column.
+          - If no 'Resource' column exists or the cell is empty, skips creating
+            that column.
         """
+
+        ### CHANGED: local import ensures ArrayFormula is always available
+        from openpyxl.worksheet.formula import ArrayFormula
+
+        ### CHANGED: converts every value into a type supported by SQLite
+        def make_sql_safe(value):
+            if isinstance(value, ArrayFormula):
+                # Store the Excel formula as text instead of passing
+                # the unsupported ArrayFormula object to SQLite.
+                return value.text
+
+            if value is None:
+                return None
+
+            if isinstance(value, (str, int, float, bytes)):
+                return value
+
+            # Defensive fallback for other unsupported Excel/Python objects
+            return str(value)
+
+        ### CHANGED: helper for safely preparing complete SQL parameter lists
+        def make_parameter_list(values):
+            return [make_sql_safe(value) for value in values]
 
         # --- helpers ---
         def q(name: str) -> str:
@@ -1173,7 +1262,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 return False
             return needle.lower() in str(val).lower()
 
-        # Sanitize label for safe SQL column naming (for resource column)
+        # Sanitize label for safe SQL column naming
         def sanitize_label(s: str) -> str:
             s = (s or "").strip().lower()
             s = s.replace(" ", "-")
@@ -1181,75 +1270,150 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             s = re.sub(r"-{2,}", "-", s)
             return s or "unnamed"
 
-        # --- NEW: if label2 is "no data", skip Excel and just write "no data" to SQL ---
+        # --- If label2 is "no data", skip Excel and write "no data" to SQL ---
         if label2.strip().lower() == "no data":
             safe_label2 = sanitize_label(label2)
-            col_name = f"{label1}{label2}"   # same pattern as normal case
+            col_name = f"{label1}{label2}"
             extracted_data = {col_name: "no data"}
 
             # Ensure table/columns exist
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (newdatabase,))
+            cursor.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name=?",
+                ### CHANGED: SQL parameter made safe
+                (make_sql_safe(newdatabase),)
+            )
             table_exists = cursor.fetchone()
 
             needed_columns = list(extracted_data.keys())
 
             if not table_exists:
-                cols_def = ", ".join([f"{q(col)} TEXT" for col in needed_columns])
-                fk_clause = f", FOREIGN KEY (ref) REFERENCES {q(maindatabase)}(ID)" if newdatabase != maindatabase else ""
-                cursor.execute(f'''
+                cols_def = ", ".join(
+                    [f"{q(col)} TEXT" for col in needed_columns]
+                )
+
+                fk_clause = (
+                    f", FOREIGN KEY (ref) "
+                    f"REFERENCES {q(maindatabase)}(ID)"
+                    if newdatabase != maindatabase
+                    else ""
+                )
+
+                cursor.execute(
+                    f'''
                     CREATE TABLE {q(newdatabase)} (
                         ID INTEGER PRIMARY KEY AUTOINCREMENT,
                         ref TEXT
                         {"," if cols_def else ""} {cols_def}
                         {fk_clause}
                     )
-                ''')
+                    '''
+                )
+
             else:
                 cursor.execute(f"PRAGMA table_info({q(newdatabase)})")
                 existing_cols = [col[1] for col in cursor.fetchall()]
-                if "ref" not in existing_cols and newdatabase != maindatabase:
-                    cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN ref TEXT")
+
+                if (
+                        "ref" not in existing_cols
+                        and newdatabase != maindatabase
+                ):
+                    cursor.execute(
+                        f"ALTER TABLE {q(newdatabase)} "
+                        f"ADD COLUMN ref TEXT"
+                    )
+
                 for col in needed_columns:
                     if col not in existing_cols:
-                        cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
+                        cursor.execute(
+                            f"ALTER TABLE {q(newdatabase)} "
+                            f"ADD COLUMN {q(col)} TEXT"
+                        )
 
             # Upsert
             if newdatabase != maindatabase:
-                cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
+                cursor.execute(
+                    f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?",
+                    ### CHANGED: mainID made safe
+                    (make_sql_safe(mainID),)
+                )
                 exists = cursor.fetchone()
+
                 if exists:
-                    set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
-                    cursor.execute(
-                        f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ref = ?",
+                    set_clause = ", ".join(
+                        [f"{q(k)} = ?" for k in extracted_data.keys()]
+                    )
+
+                    ### CHANGED: all UPDATE parameters made safe
+                    sql_parameters = make_parameter_list(
                         list(extracted_data.values()) + [mainID]
                     )
+
+                    cursor.execute(
+                        f"UPDATE {q(newdatabase)} "
+                        f"SET {set_clause} WHERE ref = ?",
+                        sql_parameters
+                    )
+
                 else:
                     cols = ["ref"] + list(extracted_data.keys())
                     placeholders = ", ".join(["?"] * len(cols))
-                    cursor.execute(
-                        f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
+
+                    ### CHANGED: all INSERT parameters made safe
+                    sql_parameters = make_parameter_list(
                         [mainID] + list(extracted_data.values())
                     )
-            else:
-                cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?", (mainID,))
-                exists = cursor.fetchone()
-                if exists:
-                    set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
+
                     cursor.execute(
-                        f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ID = ?",
+                        f"INSERT INTO {q(newdatabase)} "
+                        f"({', '.join(q(c) for c in cols)}) "
+                        f"VALUES ({placeholders})",
+                        sql_parameters
+                    )
+
+            else:
+                cursor.execute(
+                    f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?",
+                    ### CHANGED: mainID made safe
+                    (make_sql_safe(mainID),)
+                )
+                exists = cursor.fetchone()
+
+                if exists:
+                    set_clause = ", ".join(
+                        [f"{q(k)} = ?" for k in extracted_data.keys()]
+                    )
+
+                    ### CHANGED: all UPDATE parameters made safe
+                    sql_parameters = make_parameter_list(
                         list(extracted_data.values()) + [mainID]
                     )
+
+                    cursor.execute(
+                        f"UPDATE {q(newdatabase)} "
+                        f"SET {set_clause} WHERE ID = ?",
+                        sql_parameters
+                    )
+
                 else:
                     cols = ["ID"] + list(extracted_data.keys())
                     placeholders = ", ".join(["?"] * len(cols))
-                    cursor.execute(
-                        f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
+
+                    ### CHANGED: all INSERT parameters made safe
+                    sql_parameters = make_parameter_list(
                         [mainID] + list(extracted_data.values())
                     )
 
-            return  # done, no Excel lookup
+                    cursor.execute(
+                        f"INSERT INTO {q(newdatabase)} "
+                        f"({', '.join(q(c) for c in cols)}) "
+                        f"VALUES ({placeholders})",
+                        sql_parameters
+                    )
 
-        # --- Normal behavior below (when label2 is NOT "no data") ---
+            return
+
+        # --- Normal behavior when label2 is not "no data" ---
 
         max_row = sheet.max_row
         max_col = sheet.max_column
@@ -1259,140 +1423,247 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
 
         # --- 1) Find target row via adjacent (label1, label2) ---
         target_row = None
+
         for r in range(1, max_row + 1):
-            for c in range(1, max_col):  # up to max_col-1 because we check c and c+1
+            for c in range(1, max_col):
                 v1 = sheet.cell(row=r, column=c).value
                 v2 = sheet.cell(row=r, column=c + 1).value
+
                 if matches(v1, label1) and matches(v2, label2):
                     target_row = r
                     break
+
             if target_row is not None:
                 break
 
         if target_row is None:
             print("Target row not found")
-            return  # no matching row → nothing to insert
+            return
 
         # --- Optionally find the column index for "Resource" ---
         resource_col = None
+
         if include_resource:
             for row in sheet.iter_rows():
                 for cell in row:
-                    if cell.value and str(cell.value).strip().lower() == "resource":
-                        resource_col = getattr(cell, "col_idx", cell.column)
+                    if (
+                            cell.value
+                            and str(cell.value).strip().lower() == "resource"
+                    ):
+                        resource_col = getattr(
+                            cell,
+                            "col_idx",
+                            cell.column
+                        )
                         break
+
                 if resource_col:
                     break
 
-        # --- 2) Scan the row to find targets; capture right-hand values ---
+        # --- 2) Capture right-hand values ---
         extracted_data = {}
 
-        # label → col name
         col_name = f"{label1}{label2}"
 
-        # move to look for the first value to the right
         def capture_right_of_label(row: int, label: str):
             # Find the column containing the label
             for c in range(1, max_col):
-                cell_value = sheet.cell(row=row, column=c).value
+                cell_value = sheet.cell(
+                    row=row,
+                    column=c
+                ).value
+
                 if matches(cell_value, label):
-
-                    # Start searching to the right of this column
+                    # Search to the right of the label
                     for cc in range(c + 1, max_col + 1):
-                        right_val = sheet.cell(row=row, column=cc).value
+                        right_val = sheet.cell(
+                            row=row,
+                            column=cc
+                        ).value
 
-                        # Skip empty or whitespace-only
                         if right_val is None:
                             continue
 
                         if isinstance(right_val, str):
                             rv = right_val.strip()
+
                             if rv == "":
                                 continue
-                            return rv  # return first non-empty string
 
-                        # Non-string, non-None → return immediately
+                            return rv
+
                         return right_val
 
-                    # If no value was found to the right
                     return None
 
-            # Label not found at all
             return None
 
         val = capture_right_of_label(target_row, label2)
 
         if val is not None:
-            extracted_data[col_name] = val
+            ### CHANGED: value is converted immediately to an SQLite-safe type
+            extracted_data[col_name] = make_sql_safe(val)
 
-        # Optionally add the Resource value, but only if it's not empty
+        # Optionally add Resource value
         if include_resource and resource_col:
-            resource_value = sheet.cell(row=target_row, column=resource_col).value
-            if resource_value is not None and (not isinstance(resource_value, str) or resource_value.strip() != ""):
-                extracted_data[resource_colname] = resource_value
+            resource_value = sheet.cell(
+                row=target_row,
+                column=resource_col
+            ).value
+
+            if (
+                    resource_value is not None
+                    and (
+                    not isinstance(resource_value, str)
+                    or resource_value.strip() != ""
+            )
+            ):
+                ### CHANGED: Resource value is converted to an SQLite-safe type
+                extracted_data[resource_colname] = make_sql_safe(
+                    resource_value
+                )
 
         if not extracted_data:
             print("Target extracted not found")
-            return  # nothing to insert
+            return
 
         # --- 3) Ensure table/columns exist ---
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (newdatabase,))
+        cursor.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name=?",
+            ### CHANGED: database name parameter made safe
+            (make_sql_safe(newdatabase),)
+        )
         table_exists = cursor.fetchone()
 
         needed_columns = list(extracted_data.keys())
 
         if not table_exists:
-            cols_def = ", ".join([f"{q(col)} TEXT" for col in needed_columns])
-            fk_clause = f", FOREIGN KEY (ref) REFERENCES {q(maindatabase)}(ID)" if newdatabase != maindatabase else ""
-            cursor.execute(f'''
+            cols_def = ", ".join(
+                [f"{q(col)} TEXT" for col in needed_columns]
+            )
+
+            fk_clause = (
+                f", FOREIGN KEY (ref) "
+                f"REFERENCES {q(maindatabase)}(ID)"
+                if newdatabase != maindatabase
+                else ""
+            )
+
+            cursor.execute(
+                f'''
                 CREATE TABLE {q(newdatabase)} (
                     ID INTEGER PRIMARY KEY AUTOINCREMENT,
                     ref TEXT
                     {"," if cols_def else ""} {cols_def}
                     {fk_clause}
                 )
-            ''')
+                '''
+            )
+
         else:
             cursor.execute(f"PRAGMA table_info({q(newdatabase)})")
             existing_cols = [col[1] for col in cursor.fetchall()]
-            if "ref" not in existing_cols and newdatabase != maindatabase:
-                cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN ref TEXT")
+
+            if (
+                    "ref" not in existing_cols
+                    and newdatabase != maindatabase
+            ):
+                cursor.execute(
+                    f"ALTER TABLE {q(newdatabase)} "
+                    f"ADD COLUMN ref TEXT"
+                )
+
             for col in needed_columns:
                 if col not in existing_cols:
-                    cursor.execute(f"ALTER TABLE {q(newdatabase)} ADD COLUMN {q(col)} TEXT")
+                    cursor.execute(
+                        f"ALTER TABLE {q(newdatabase)} "
+                        f"ADD COLUMN {q(col)} TEXT"
+                    )
 
-        # --- 4) Upsert (same rules as your working pattern) ---
+        # --- 4) Upsert ---
         if newdatabase != maindatabase:
-            cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?", (mainID,))
+            cursor.execute(
+                f"SELECT 1 FROM {q(newdatabase)} WHERE ref = ?",
+                ### CHANGED: mainID made safe
+                (make_sql_safe(mainID),)
+            )
             exists = cursor.fetchone()
+
             if exists:
-                set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
-                cursor.execute(
-                    f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ref = ?",
-                    list(extracted_data.values()) + [mainID]
+                set_clause = ", ".join(
+                    [f"{q(k)} = ?" for k in extracted_data.keys()]
                 )
+
+                ### CHANGED: handles ArrayFormula in parameter 1, 2, or later
+                sql_parameters = make_parameter_list(
+                    [extracted_data[col] for col in needed_columns]
+                    + [mainID]
+                )
+
+                cursor.execute(
+                    f"UPDATE {q(newdatabase)} "
+                    f"SET {set_clause} WHERE ref = ?",
+                    sql_parameters
+                )
+
             else:
-                cols = ["ref"] + list(extracted_data.keys())
+                cols = ["ref"] + needed_columns
                 placeholders = ", ".join(["?"] * len(cols))
-                cursor.execute(
-                    f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
-                    [mainID] + list(extracted_data.values())
+
+                ### CHANGED: all INSERT parameters made safe
+                sql_parameters = make_parameter_list(
+                    [mainID]
+                    + [extracted_data[col] for col in needed_columns]
                 )
+
+                cursor.execute(
+                    f"INSERT INTO {q(newdatabase)} "
+                    f"({', '.join(q(c) for c in cols)}) "
+                    f"VALUES ({placeholders})",
+                    sql_parameters
+                )
+
         else:
-            cursor.execute(f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?", (mainID,))
+            cursor.execute(
+                f"SELECT 1 FROM {q(newdatabase)} WHERE ID = ?",
+                ### CHANGED: mainID made safe
+                (make_sql_safe(mainID),)
+            )
             exists = cursor.fetchone()
+
             if exists:
-                set_clause = ", ".join([f"{q(k)} = ?" for k in extracted_data.keys()])
-                cursor.execute(
-                    f"UPDATE {q(newdatabase)} SET {set_clause} WHERE ID = ?",
-                    list(extracted_data.values()) + [mainID]
+                set_clause = ", ".join(
+                    [f"{q(k)} = ?" for k in extracted_data.keys()]
                 )
-            else:
-                cols = ["ID"] + list(extracted_data.keys())
-                placeholders = ", ".join(["?"] * len(cols))
+
+                ### CHANGED: handles ArrayFormula in parameter 1, 2, or later
+                sql_parameters = make_parameter_list(
+                    [extracted_data[col] for col in needed_columns]
+                    + [mainID]
+                )
+
                 cursor.execute(
-                    f"INSERT INTO {q(newdatabase)} ({', '.join(q(c) for c in cols)}) VALUES ({placeholders})",
-                    [mainID] + list(extracted_data.values())
+                    f"UPDATE {q(newdatabase)} "
+                    f"SET {set_clause} WHERE ID = ?",
+                    sql_parameters
+                )
+
+            else:
+                cols = ["ID"] + needed_columns
+                placeholders = ", ".join(["?"] * len(cols))
+
+                ### CHANGED: all INSERT parameters made safe
+                sql_parameters = make_parameter_list(
+                    [mainID]
+                    + [extracted_data[col] for col in needed_columns]
+                )
+
+                cursor.execute(
+                    f"INSERT INTO {q(newdatabase)} "
+                    f"({', '.join(q(c) for c in cols)}) "
+                    f"VALUES ({placeholders})",
+                    sql_parameters
                 )
 
     # Function to extract manual assessment if present from the CPS excel file as a df
@@ -1557,9 +1828,6 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 df.to_sql(table_name, conn, if_exists="append", index=False)
                 print(f"Data has changed, updating")
 
-        # conn.commit()
-        # conn.close()
-        # print("Closing the database")
 
     try:
         ### SQL SET-UP
@@ -1615,11 +1883,31 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 # check if CAS is in the list if not then it is skipped
                 if inv_number not in CAS_needing_DB_update:
                     continue
-            # Check which inv you work with
+            # Check which inventory number you are working with
             st.write(f"Updating CAS: {inv_number}")
+
             cursor.execute(
-                'INSERT INTO C2C_DATABASE (ID, LastUpdate, FileName , Comments) VALUES (?,?,?,?)',
-                (inv_number, last_update, filename, comments))
+                """
+                INSERT INTO C2C_DATABASE (
+                    ID,
+                    LastUpdate,
+                    FileName,
+                    Comments
+                )
+                VALUES (?, ?, ?, ?)
+
+                ON CONFLICT(ID) DO UPDATE SET
+                    LastUpdate = excluded.LastUpdate,
+                    FileName = excluded.FileName,
+                    Comments = excluded.Comments
+                """,
+                (
+                    inv_number,
+                    last_update,
+                    filename,
+                    comments
+                )
+            )
 
             # Open the Excel file
             CPS_wb_obj = openpyxl.load_workbook(full_path)
@@ -1633,7 +1921,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             add_info_CPS_below(CPSsheet, {"Name assessor":"Name assessor","Date created/updated" : "Date assessed"},"C2C_DATABASE","ASSESSORS",inv_number)
 
             # Add various info
-            for info in ["Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]:
+            for info in ["Harmonized", "Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]:
                    add_info_CPS_one_cell_right(CPSsheet,info,[2],[info],
                        "C2C_DATABASE","CHEMICALCLASS",inv_number)
 
@@ -1653,17 +1941,17 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 add_info_CPS_right_until_empty(CPSsheet,ED_type,[1],[ED_type],
                     "C2C_DATABASE","ENDOCRINE",inv_number)
 
-            # MUTAGENICITY/GENOTOXICITY
-            # General information
-            for muta_type in ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]:
-                add_info_CPS_right_until_empty(CPSsheet,muta_type,[1],[muta_type],
-                    "C2C_DATABASE","MUTAGENICITY",inv_number)
-            # Point mutations
-            P_mut = loop_over_to_collect_right_values(CPSsheet,"Point mutations:")  # make a string with all point mut
-            #print("Point mut",P_mut) #print to see if it makes a string with the point mut
-            for p_mut in P_mut:
-                 add_info_right_two_markers_OECD(CPSsheet,"Point mutations:",p_mut, "C2C_DATABASE","POINTMUT",inv_number)
-
+            # # MUTAGENICITY/GENOTOXICITY
+            # # General information
+            # for muta_type in ["Mutagenicity Classified CLP", "Mutagenicity Classified MAK","Mutagenicity Comments"]:
+            #     add_info_CPS_right_until_empty(CPSsheet,muta_type,[1],[muta_type],
+            #         "C2C_DATABASE","MUTAGENICITY",inv_number)
+            # # Point mutations
+            # P_mut = loop_over_to_collect_right_values(CPSsheet,"Point mutations:")  # make a string with all point mut
+            # #print("Point mut",P_mut) #print to see if it makes a string with the point mut
+            # for p_mut in P_mut:
+            #      add_info_right_two_markers_OECD(CPSsheet,"Point mutations:",p_mut, "C2C_DATABASE","POINTMUT",inv_number)
+            #
 
             # Chromosomal mutations
             Ch_mut = loop_over_to_collect_right_values(CPSsheet,
@@ -1799,9 +2087,19 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             connection.commit()
             connection.close()
         st.write("Connection closed.")
-
 def save_DB_to_excel(db_path, DB_excel_saving_path):
+    """Saving DB as a master excel in Streamlit
+    db_path = path to current DB
+    DB_excel_saving_path = path to excel export of DB"""
     #### Save Database as Excel ####
+    def get_versioned_excel_path(folder, base_name, ext=".xlsx"):
+        version = 1
+        while True:
+            suffix = "" if version == 1 else f"_v{version}"
+            path = os.path.join(folder, f"{base_name}{suffix}{ext}")
+            if not os.path.exists(path):
+                return path
+            version += 1
     today = datetime.today().strftime("%Y%m%d")
     try:
         ### SQL SET-UP
@@ -1880,9 +2178,16 @@ def save_DB_to_excel(db_path, DB_excel_saving_path):
         df = sanitize_excel_cells(df)
 
         # Write away the database as Excel
-        with pd.ExcelWriter(DB_excel_saving_path + '/Database/C2Cdatabase ' + today + '.xlsx', engine='openpyxl') as writer:
+        export_folder = os.path.join(DB_excel_saving_path, "Database")
+        os.makedirs(export_folder, exist_ok=True)
+
+        base_name = f"C2Cdatabase {today}"
+        excel_path = get_versioned_excel_path(export_folder, base_name)
+
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="C2C DATABASE", index=False)
-        st.write(f"Database exported to Excel as C2Cdatabase{today}.xlsx")
+
+        st.write(f"Database exported to Excel as {os.path.basename(excel_path)}")
 
 
     except sqlite3.Error as e:
@@ -1903,7 +2208,13 @@ def save_DB_to_excel(db_path, DB_excel_saving_path):
         except NameError:
             pass
 def extraction_info_excels(database, template_path, CAS, folder, image_dir):
-    '''Function saves CAS from DB to excel'''
+    '''Function saves CAS from DB to excel CPS format. This can be done if there is a CAS that is in DB but not in CPS excel folder
+    database = path to DB
+    template_path = path to the excel template (very importnant!),
+    CAS = CAS number,
+    folder = folder for saving,
+    image_dir = folder with images. The images need to have names CPS_CAS {number}
+    '''
     def db_to_excel_multiple_below(maindb, main_ref, linked_db, link_ref, column_to_get, lookup_column, lookup_value,
                                    label_excel):
 
@@ -2838,8 +3149,8 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                                    column_to_get="Date assessed", lookup_column="ID", lookup_value=CAS,
                                    label_excel="Date created/updated")
         ## Add various info CHEMICAL CLASS
-        namesDBcol_CC = ["Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]
-        namesExcel_CC = ["Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]
+        namesDBcol_CC = ["Harmonized","Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]
+        namesExcel_CC = ["Harmonized","Organohalogen","Toxic metal", "Colourant", "Geological", "Biological", "Polymer", "SVHC", "VOC"]
         for names_DB, name_EX in zip(namesDBcol_CC, namesExcel_CC):
             refdb_to_excel_source_right(maindb="C2C_DATABASE", main_ref="ID", linked_db="CHEMICALCLASS", link_ref="ref",
                                         column_to_get=names_DB, lookup_column="ID", lookup_value=CAS,
@@ -3093,9 +3404,121 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 
     except sqlite3.Error as e:
         st.write("SQLite error:", e)
+def make_cas_report_excel(folder, *, base_name="Export_CAS", CASall=None, found=None, not_found=None, CAS_not_in_DB_but_in_excel=None,  CAS_not_in_DB_and_not_in_excel=None, CAS_older_than_3_years=None, CAS_needing_update=None, cas_with_up_to_date_info=None, cas_hazards=None, cas_with_no_json=None):
+    """
+    Creates an Excel report from the programme run.
+    Saves it automatically as Export_CAS_{date}.xlsx (or _v2, _v3... if needed).
+    Returns the saved file at a location.
+    function variables correspond to the things we want to save (also later in coding the
+    Excel eg A1 = CASall etc., if you want to add more things to the excel expand the function.
+    Remember the sub function _as_cell_text enables to convert the output of funcitons to text in Excel
+    """
+
+    def _as_cell_text(value):
+        """
+        Converts function outputs to something Excel-friendly.
+        - None -> ""
+        - list/tuple/set -> newline-separated string
+        - dict -> pretty key: value lines
+        - everything else -> str(value)
+        """
+        if value is None:
+            return ""
+        if isinstance(value, dict):
+            return "\n".join([f"{k}: {v}" for k, v in value.items()])
+        if isinstance(value, (list, tuple, set)):
+            return "\n".join([str(x) for x in value])
+        return str(value)
+
+    def get_unique_export_filename(folder, base_name="Export_CAS", ext=".xlsx"):
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+        # Initial filename
+        filename = f"{base_name}_{date_str}{ext}"
+        full_path = os.path.join(folder, filename)
+
+        # If name exists, add _v2, _v3, ...
+        version = 2
+        while os.path.exists(full_path):
+            filename = f"{base_name}_{date_str}_v{version}{ext}"
+            full_path = os.path.join(folder, filename)
+            version += 1
+
+        return full_path
+
+    os.makedirs(folder, exist_ok=True)
+    out_path = get_unique_export_filename(folder, base_name=base_name, ext=".xlsx")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "CAS Report"
+
+    bold = Font(bold=True)
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 70
+
+    ws["A1"] = "Report of the CAS"
+    ws["A1"].font = bold
+
+    ws["A3"] = "Information"
+    ws["A3"].font = bold
+    ws["B3"] = "CAS"
+    ws["B3"].font = bold
+
+    ws["A4"] = "CAS analysed:"
+    ws["B4"] = _as_cell_text(CASall)
+
+    ws["A5"] = "CAS found in database:"
+    ws["B5"] = _as_cell_text(found)
+
+    ws["A6"] = "CAS not in database:"
+    ws["B6"] = _as_cell_text(not_found)
+
+    ws["A7"] = "New excel CPS added to DB for:"
+    ws["B7"] = _as_cell_text(CAS_not_in_DB_but_in_excel)
+
+    ws["A8"] = "CAS missing, need to be made:"
+    ws["A8"].font = Font(bold=True, color="FF0000")
+    ws["B8"] = _as_cell_text(CAS_not_in_DB_and_not_in_excel)
+    ws["B8"].font = Font(bold=True, color="FF0000")
+
+    ws["A9"] = "CPS older than 3 years for:"
+    ws["A9"].font = Font(bold=True, color="FF0000")
+    ws["B9"] = _as_cell_text(CAS_older_than_3_years)
+    ws["B9"].font = Font(bold=True, color="FF0000")
+
+    ws["A10"] = "CPS updated with new info from excel:"
+    ws["B10"] = _as_cell_text(CAS_needing_update)
+
+    ws["A11"] = "CnL info check"
+    ws["A11"].font = bold
+
+    ws["A12"] = "CnL info that is up to date:"
+    ws["B12"] = _as_cell_text(cas_with_up_to_date_info)
+
+    ws["A13"] = "CnL info is dfferent than in CPS for:"
+    ws["A13"].font = Font(bold=True, color="FF0000")
+    ws["B13"] = _as_cell_text(cas_hazards)
+    ws["B13"].font = Font(bold=True, color="FF0000")
+
+    ws["A14"] = "CnL info was not found for:"
+    ws["B14"] = _as_cell_text(cas_with_no_json)
+
+    for row in range(1, 16):
+        for col in range(1, 3):
+            cell = ws.cell(row=row, column=col)
+            if cell.value not in (None, ""):
+                cell.alignment = wrap
+
+    wb.save(out_path)
+    return out_path
 
 CAS_not_in_DB_but_in_excel = []
-
+CAS_not_in_DB_and_not_in_excel = []
+CAS_older_than_3_years = []
+CAS_needing_update = []
 
 #### Create/update C2C database with CAS numbers from Excel files ####
 # if connceted to database you can press run
@@ -3112,11 +3535,14 @@ if os.path.isfile(db_path):
     image_dir = os.path.join(project_root, "Chem_image")
     template_path = os.path.join(project_root, "Template", "CPS_CAS TEMPLATE V2.xlsm")
     folder_for_saving = os.path.join(project_root, "Downloads from Streamlit")
+    folder_for_saving_excel_exports = os.path.join(project_root, "Downloads from Streamlit", "Report exports")
+    folder_for_saving_CPS = os.path.join(project_root, "Downloads from Streamlit", "CPS downloads")
+    db_backup_for_saving = os.path.join(project_root, "Database", "Backups")
 
     if st.button(":green[Run the code to screen selected CAS]"):
         ### Beginning: before starting download all available json files and make a backup of the DB
         st.success(":blue[Creating a DB back up.]")
-        make_a_backup(db_path)
+        make_a_backup(db_path, db_backup_for_saving)
         st.success(":green[Back up complete.]")
         # json files download (first step to get new CnL info):
         st.success(":blue[Searching CnL website.]")
@@ -3154,11 +3580,12 @@ if os.path.isfile(db_path):
             # for CAS not in DB and not in Excel
             if CAS_not_in_DB_and_not_in_excel:
                 st.success(f":red[CAS missing from DB and not in the Excel files: {', '.join(CAS_not_in_DB_and_not_in_excel)}. They need to be added to DB.]")
-                st.write(f"Creating {', '.join(CAS_not_in_DB_and_not_in_excel)} as Excel files")
-                for CAS in CAS_not_in_DB_and_not_in_excel:
-                    extraction_info_excels(db_path, template_path, CAS, folder_for_saving, image_dir)
-                    st.toast(f"Excel file for {CAS} saved in your folder. Check it!")
-                    st.write(f"Excel file saved {CAS} in your folder.")
+                ### LATER OPTION TO CREATE CPS FILES FROM CNL
+                # st.write(f"Creating {', '.join(CAS_not_in_DB_and_not_in_excel)} as Excel files")
+                # for CAS in CAS_not_in_DB_and_not_in_excel:
+                #     extraction_info_excels(db_path, template_path, CAS, folder_for_saving_CPS, image_dir)
+                #     st.toast(f"Excel file for {CAS} saved in your folder. Check it!")
+                #     st.write(f"Excel file saved {CAS} in your folder.")
             else:
                 st.success("There are no CAS missing from DB and not in the Excel files.")
 
@@ -3169,7 +3596,9 @@ if os.path.isfile(db_path):
             CAS_in_folder, CAS_not_in_folder = check_if_excel_is_in_folder(folder_excels, found)
             if CAS_in_folder:
                 st.write(f"Excel with CAS found for: {', '.join(CAS_in_folder)}")
-                CAS_needing_update = is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_in_folder)
+                CAS_needing_update, CAS_older_than_3_years = is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_in_folder)
+                if CAS_older_than_3_years:
+                    st.success(f":red[CAS older than 3 years: {', '.join(CAS_older_than_3_years)}]")
                 if CAS_needing_update:
                     CAS_not_needing_update = [cas for cas in CAS_in_folder if cas not in CAS_needing_update]
                     st.success(f"CAS needing update: {', '.join(CAS_needing_update)}. CAS up to date: {', '.join(CAS_not_needing_update)} with info from Excel")
@@ -3177,37 +3606,52 @@ if os.path.isfile(db_path):
                     extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_update)
                     st.success(f"DB updated successfully with: {', '.join(CAS_needing_update)}")
                 else:
-                    st.success("All CAS are up to date with info from Excel.")
+                    if CAS_older_than_3_years:
+                        st.success("All CAS are up to date with info from Excel.")
+                    else:
+                        st.success(f":red[Make sure to check {', '.join(CAS_older_than_3_years)} - old]")
 
             if CAS_not_in_folder:
                 st.success(f":red[Those CAS are in DB but not as Excel files: {', '.join(CAS_not_in_folder)}. Making an Excel file in the folder]")
                 # creating an Excel with info that is in the DB
                 st.write("Generating an Excel file")
                 for CAS in CAS_not_in_folder:
-                    extraction_info_excels(db_path, template_path, CAS, folder_for_saving, image_dir)
+                    extraction_info_excels(db_path, template_path, CAS, folder_for_saving_CPS, image_dir)
                     st.toast("Excel file saved in your folder. Check it!")
                     st.write("Excel file saved in your folder.")
 
         ### Checking info from ECHA CnL
         # add together all the CAS for which CnL will be checked
-        if CAS_not_in_DB_but_in_excel:
-            all_CAS_to_check_CnL = found + CAS_not_in_DB_but_in_excel
-        else:
-            all_CAS_to_check_CnL = found
+        all_CAS_to_check_CnL = found + CAS_not_in_DB_but_in_excel
         st.success(f":blue[CnL info will be checked]")
         st.success(f"CnL info will be checked for: {', '.join(all_CAS_to_check_CnL)}")
         cas_hazards_list, cas_with_no_json = insert_json_info_to_DB(CnL_json, db_path, all_CAS_to_check_CnL)
         cas_hazards_updated = list(cas_hazards_list.keys())
         cas_with_up_to_date_info = [cas for cas in all_CAS_to_check_CnL if cas not in cas_hazards_updated]
         cas_with_up_to_date_info = [cas for cas in cas_with_up_to_date_info if cas not in cas_with_no_json]
-        if cas_with_no_json != []:
+        if cas_with_no_json:
             st.success(f":red[Data not checked for : {', '.join(cas_with_no_json)} (no info CnL file)]")
-        if cas_with_up_to_date_info != []:
+        if cas_with_up_to_date_info:
             st.success(f"CAS that have CnL info up to date: {', '.join(cas_with_up_to_date_info)}")
-        if cas_hazards_updated != []:
+        if cas_hazards_updated:
             st.success(f":red[CnL info changed for: {', '.join(cas_hazards_updated)}]")
             for k, v in cas_hazards_list.items():
                 st.write(f":red[{k},{v}]")
+
+        out_file = make_cas_report_excel(
+            folder= folder_for_saving_excel_exports,
+            CASall=CASall,
+            found=found,
+            not_found=not_found,
+            CAS_not_in_DB_but_in_excel=CAS_not_in_DB_but_in_excel,
+            CAS_not_in_DB_and_not_in_excel=CAS_not_in_DB_and_not_in_excel,
+            CAS_older_than_3_years=CAS_older_than_3_years,
+            CAS_needing_update=CAS_needing_update,
+            cas_with_up_to_date_info =cas_with_up_to_date_info,
+            cas_hazards=cas_hazards_list,
+            cas_with_no_json=cas_with_no_json,
+        )
+        st.success(f"Excel file with the documentation saved: {out_file}")
 
 # saving the DB as excel file if needed
 if os.path.isfile(db_path):
