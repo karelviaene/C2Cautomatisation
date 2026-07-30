@@ -5,8 +5,30 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="Correction of streamlit_page_different_DB_selection.py">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page_different_DB_selection.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_page_different_DB_selection.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.gitattributes" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/dictionaries/project.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/mas_automation.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automation.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automation_app.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automation_app_tests.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automation_v2.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_automoation_with_mixture_rules.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_generation.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/MAS_generator_app.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/assign_colours_c2c.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/extract_manual_assessment_from_CPS.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/initial_tests/MAS_automation_tests.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/initial_tests/corrosion_irritation_c2c_tests.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/initial_tests/hazrads_to_c2c_tests.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/initial_tests/tests.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/mixture_rules_c2c.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/mixture_rules_clp_classification.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MAS_automation/mas_automation/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -51,45 +73,48 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Python.ARCHE_ED Screener.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2C_CreateDB.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2C_CreateDB_1.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2C_CreateDB_old.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2C_ExtractInfoExcels.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2C_ExtractInfo_ECHACHEM_CnL.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2C_ExtractionInfoExcels_option_1.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2C_Functions_test.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2C_info_from_ECHACHEM_to_separate_tables_in_DB.executor&quot;: &quot;Run&quot;,
-    &quot;Python.C2Cmain.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Dropbox API test.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Functions-tests.executor&quot;: &quot;Run&quot;,
-    &quot;Python.SMILESlookup.executor&quot;: &quot;Run&quot;,
-    &quot;Python.streamlit_page.executor&quot;: &quot;Run&quot;,
-    &quot;Python.streamlit_page_different_DB_selection.executor&quot;: &quot;Run&quot;,
-    &quot;Python.streamlit_page_with_dropbox.executor&quot;: &quot;Run&quot;,
-    &quot;Python.streamlit_page_working_draft.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/juliakulpa/Downloads&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.ARCHE_ED Screener.executor": "Run",
+    "Python.C2C_CreateDB.executor": "Run",
+    "Python.C2C_CreateDB_1.executor": "Run",
+    "Python.C2C_CreateDB_old.executor": "Run",
+    "Python.C2C_ExtractInfoExcels.executor": "Run",
+    "Python.C2C_ExtractInfo_ECHACHEM_CnL.executor": "Run",
+    "Python.C2C_ExtractionInfoExcels_option_1.executor": "Run",
+    "Python.C2C_Functions_test.executor": "Run",
+    "Python.C2C_info_from_ECHACHEM_to_separate_tables_in_DB.executor": "Run",
+    "Python.C2Cmain.executor": "Run",
+    "Python.Dropbox API test.executor": "Run",
+    "Python.Functions-tests.executor": "Run",
+    "Python.SMILESlookup.executor": "Run",
+    "Python.streamlit_page.executor": "Run",
+    "Python.streamlit_page_different_DB_selection.executor": "Run",
+    "Python.streamlit_page_with_dropbox.executor": "Run",
+    "Python.streamlit_page_working_draft.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "main",
+    "last_opened_file_path": "/Users/juliakulpa/PycharmProjects/C2Cautomatisation/MAS_automation",
+    "settings.editor.selected.configurable": "preferences.pluginManager"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/MAS_automation" />
       <recent name="$USER_HOME$/Downloads" />
     </key>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-164cda30dcd9-0af03a5fa574-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.26830.99" />
+        <option value="bundled-python-sdk-c59985aa861c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.24374.152" />
       </set>
     </attachedChunks>
   </component>
@@ -383,6 +408,9 @@
     </task>
     <option name="localTasksCounter" value="36" />
     <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
     <option name="TAB_STATES">
