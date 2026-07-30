@@ -4,12 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="Correction of streamlit_page_different_DB_selection.py">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/ARCHIVE_streamlit_page_old.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page_different_DB_selection.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/ARCHIVE_streamlit_page_different_DB_selection_old.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Testing/streamlit_page_working_draft.py" beforeDir="false" afterPath="$PROJECT_DIR$/Testing/streamlit_DB_communication_CURRENT.py" afterDir="false" />
-    </list>
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="Corrections" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -403,7 +398,15 @@
       <option name="project" value="LOCAL" />
       <updated>1785403949350</updated>
     </task>
-    <option name="localTasksCounter" value="38" />
+    <task id="LOCAL-00038" summary="Corrections">
+      <option name="closed" value="true" />
+      <created>1785420494611</created>
+      <option name="number" value="00038" />
+      <option name="presentableId" value="LOCAL-00038" />
+      <option name="project" value="LOCAL" />
+      <updated>1785420494611</updated>
+    </task>
+    <option name="localTasksCounter" value="39" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -443,7 +446,8 @@
     <MESSAGE value="saving changes" />
     <MESSAGE value="Streamlit function to also take the colour assessments" />
     <MESSAGE value="Correction of streamlit_page_different_DB_selection.py" />
-    <option name="LAST_COMMIT_MESSAGE" value="Correction of streamlit_page_different_DB_selection.py" />
+    <MESSAGE value="Corrections" />
+    <option name="LAST_COMMIT_MESSAGE" value="Corrections" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
