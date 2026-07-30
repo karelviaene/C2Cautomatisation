@@ -7,7 +7,6 @@ import json
 import copy
 import sqlite3
 import os
-import re
 import pandas as pd
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.cell.cell import MergedCell
@@ -20,8 +19,7 @@ from datetime import datetime, timedelta, date
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
 import re
-from decimal import Decimal
-from openpyxl.worksheet.formula import ArrayFormula
+
 
 st.title("ARCHE CAS database")
 # text
