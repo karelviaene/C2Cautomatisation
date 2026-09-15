@@ -4,7 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
+<<<<<<< Updated upstream
     <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="Correction of streamlit_page_different_DB_selection.py" />
+=======
+    <list default="true" id="42a5482d-43ac-4286-99aa-a35c7ed78527" name="Changes" comment="streamlit update">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
+>>>>>>> Stashed changes
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -61,20 +67,27 @@
     &quot;Python.C2C_ExtractInfo_ECHACHEM_CnL.executor&quot;: &quot;Run&quot;,
     &quot;Python.C2C_ExtractionInfoExcels_option_1.executor&quot;: &quot;Run&quot;,
     &quot;Python.C2C_Functions_test.executor&quot;: &quot;Run&quot;,
+<<<<<<< Updated upstream
     &quot;Python.C2C_info_from_ECHACHEM_to_separate_tables_in_DB.executor&quot;: &quot;Run&quot;,
+=======
+>>>>>>> Stashed changes
     &quot;Python.C2Cmain.executor&quot;: &quot;Run&quot;,
     &quot;Python.Dropbox API test.executor&quot;: &quot;Run&quot;,
     &quot;Python.Functions-tests.executor&quot;: &quot;Run&quot;,
     &quot;Python.SMILESlookup.executor&quot;: &quot;Run&quot;,
     &quot;Python.streamlit_page.executor&quot;: &quot;Run&quot;,
+<<<<<<< Updated upstream
     &quot;Python.streamlit_page_different_DB_selection.executor&quot;: &quot;Run&quot;,
     &quot;Python.streamlit_page_with_dropbox.executor&quot;: &quot;Run&quot;,
     &quot;Python.streamlit_page_working_draft.executor&quot;: &quot;Run&quot;,
+=======
+>>>>>>> Stashed changes
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
     &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+<<<<<<< Updated upstream
     &quot;last_opened_file_path&quot;: &quot;/Users/juliakulpa/Downloads&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;
   }
@@ -84,6 +97,11 @@
       <recent name="$USER_HOME$/Downloads" />
     </key>
   </component>
+=======
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;
+  }
+}</component>
+>>>>>>> Stashed changes
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
