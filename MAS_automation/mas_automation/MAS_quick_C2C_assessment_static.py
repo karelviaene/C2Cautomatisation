@@ -49,13 +49,12 @@ C2C_ASSESSMENT_TEMPLATE_PATH = os.path.join(
 CONDITIONAL_FORMATTING_ROW_HEADROOM = 200000
 ### Excel itself (not this script) starts struggling with very large sheets of
 ### plain data too, at large enough sizes - if "detailed_overview" would need
-### row_count * column_count cells at or above this, save_c2c_assessment_output()
-### splits the output into a summary file (overview/percentage_assessed/
-### risk_assessed, always computed from the FULL data regardless of the split)
-### plus one detailed_overview file per product - and, if even a single
-### product's data is still too big, further batched by scenario within
-### that product.
-DETAILED_OVERVIEW_CELL_CAP = 200000
+### row_count at or above this, save_c2c_assessment_output() splits the output
+### into a summary file (overview/percentage_assessed/risk_assessed, always
+### computed from the FULL data regardless of the split) plus one
+### detailed_overview file per product - and, if even a single product's data
+### is still too big, further batched by scenario within that product.
+DETAILED_OVERVIEW_ROW_CAP = 30000
 ########################################################################
 
 ### Adjust cols names if the template changes
@@ -1280,17 +1279,17 @@ def _sanitize_filename_part(text):
     return re.sub(r'[\\/*?:"<>|]', "_", str(text)).strip() or "unnamed"
 
 
-def _split_scenarios_into_batches(df_p, num_cols, cell_cap):
+def _split_scenarios_into_batches(df_p, row_cap):
     """
     Split one product's rows into consecutive scenario batches, each staying under
-    cell_cap cells where possible. Returns [(scenario_ids, start_idx, end_idx), ...] with
+    row_cap rows where possible. Returns [(scenario_ids, start_idx, end_idx), ...] with
     1-based start_idx/end_idx (this product's own scenario numbering, for filenames like
     "..._scenarios_1-100"). A single scenario that alone exceeds the cap still gets its own
     (oversized) batch - a scenario's rows are never split apart.
     """
     scenario_order = df_p[COL_SCENARIO_ID].drop_duplicates().tolist()
     counts = df_p[COL_SCENARIO_ID].value_counts()
-    max_rows = max(cell_cap // num_cols, 1)
+    max_rows = max(row_cap, 1)
 
     batches = []
     current_scenarios, current_rows, start_idx = [], 0, 1
@@ -1314,16 +1313,14 @@ def save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, da
       detailed_overview is never in this file.
     - detailed_overview, always in its own file(s), inside a new subfolder
       "detailed_assessment_<file>_<date>" under saving_dir:
-        - fits under DETAILED_OVERVIEW_CELL_CAP (row_count * column_count cells) as a
-          single file: "C2C_assessment_detailed_overview_<file>_<date>.xlsx" (all products
-          together).
+        - fits under DETAILED_OVERVIEW_ROW_CAP rows as a single file:
+          "C2C_assessment_detailed_overview_<file>_<date>.xlsx" (all products together).
         - otherwise: one "C2C_assessment_detailed_overview_<product>_scenarios_<start>-<end>_<file>_<date>.xlsx"
           per product (further split into multiple scenario-range batches if even a single
           product's own data is still too big for one file).
     Returns the list of saved file paths.
     """
     file_stem = os.path.splitext(file_name)[0]
-    num_cols = len(c2c_df.columns)
     saved_paths = []
 
     # ---- summary file: always just the 3 summary sheets, always from the FULL data ----
@@ -1335,25 +1332,23 @@ def save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, da
     detail_dir = os.path.join(saving_dir, f"detailed_assessment_{file_stem}_{date_str}")
     os.makedirs(detail_dir, exist_ok=True)
 
-    total_cells = len(c2c_df) * num_cols
-    if total_cells < DETAILED_OVERVIEW_CELL_CAP:
+    total_rows = len(c2c_df)
+    if total_rows < DETAILED_OVERVIEW_ROW_CAP:
         detail_path = os.path.join(detail_dir, f"C2C_assessment_detailed_overview_{file_stem}_{date_str}.xlsx")
         save_detailed_overview_only(c2c_df, detail_path, template_path=template_path)
         saved_paths.append(detail_path)
         return saved_paths
 
     print(
-        f"detailed_overview would need {total_cells} cells ({len(c2c_df)} rows x {num_cols} cols), "
-        f"at or above the {DETAILED_OVERVIEW_CELL_CAP} cap - splitting it into one file per product "
-        f"(and, for any product still too big on its own, further into scenario-range batches), "
-        f"saved under: {detail_dir}"
+        f"detailed_overview would need {total_rows} rows, at or above the {DETAILED_OVERVIEW_ROW_CAP} cap - "
+        f"splitting it into one file per product (and, for any product still too big on its own, further "
+        f"into scenario-range batches), saved under: {detail_dir}"
     )
 
     for prod, df_p in c2c_df.groupby(COL_PRODUCT, sort=False):
         prod_label = _sanitize_filename_part(prod)
-        prod_cells = len(df_p) * num_cols
 
-        if prod_cells < DETAILED_OVERVIEW_CELL_CAP:
+        if len(df_p) < DETAILED_OVERVIEW_ROW_CAP:
             n_scenarios = df_p[COL_SCENARIO_ID].nunique()
             out_path = os.path.join(
                 detail_dir,
@@ -1363,7 +1358,7 @@ def save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, da
             saved_paths.append(out_path)
             continue
 
-        for scenario_ids, start_idx, end_idx in _split_scenarios_into_batches(df_p, num_cols, DETAILED_OVERVIEW_CELL_CAP):
+        for scenario_ids, start_idx, end_idx in _split_scenarios_into_batches(df_p, DETAILED_OVERVIEW_ROW_CAP):
             df_batch = df_p[df_p[COL_SCENARIO_ID].isin(scenario_ids)]
             out_path = os.path.join(
                 detail_dir,
