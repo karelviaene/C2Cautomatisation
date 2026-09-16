@@ -9,10 +9,45 @@ from tkinter import filedialog
 from tkinter import messagebox
 import re
 import os
+import shutil
 from datetime import datetime
 from tqdm import tqdm
 import sqlite3
 from collections import Counter
+import openpyxl
+from openpyxl.formula.translate import Translator
+from openpyxl.worksheet.formula import ArrayFormula
+
+########################################################################
+### C2C ASSESSMENT EXCEL TEMPLATE
+### The "C2C_assessment_all/selected_scenarios" excels are NOT built from
+### scratch - they are a copy of templates/C2C_assessment_template.xlsx
+### with the "detailed_overview" sheet filled in with the output of
+### build_c2c_assessment_df(). The other 3 sheets in that template
+### ("overview", "percentage_assessed", "risk_assessed") contain Excel
+### formulas that read from "detailed_overview" by FIXED COLUMN LETTER.
+### If this repo moves/renames the template file, OR the column order/
+### names produced by build_c2c_assessment_df() change, you must also
+### update (or re-derive) templates/C2C_assessment_template.xlsx and
+### the path below, otherwise those formulas will silently read the
+### wrong columns.
+C2C_ASSESSMENT_TEMPLATE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "templates", "C2C_assessment_template.xlsx"
+)
+### The "overview"/"percentage_assessed"/"risk_assessed" sheets ship with
+### only ONE formula row (row 2) in the template. save_c2c_assessment_workbook()
+### generates however many extra formula rows this project needs (matched
+### to the number of rows written to "detailed_overview", capped at
+### C2C_ASSESSMENT_TEMPLATE_MAX_ROWS below), AND shrinks each formula's
+### detailed_overview scan range (the template's row 2 hardcodes
+### $2:$50000 / $2:$100000) down to just cover that many rows plus
+### C2C_ASSESSMENT_SCAN_RANGE_BUFFER of headroom. Both matter for speed:
+### a real-world 30,000-row project with the old fixed 50000/100000 scan
+### range made Excel crash on open, so keep this cap conservative even
+### though it is technically possible to go higher.
+C2C_ASSESSMENT_TEMPLATE_MAX_ROWS = 5000
+C2C_ASSESSMENT_SCAN_RANGE_BUFFER = 100
+########################################################################
 
 ### Adjust cols names if the template changes
 #############################################
@@ -2198,7 +2233,36 @@ def mixture_rules_C2C_assessment(df_product, df_toxicity_info):
 
     return final_c2c_results_summary
 #################################################################
+### Filter out placeholder/invalid CAS values before querying the DB
+CAS_NUMBER_PATTERN = re.compile(r"^\d{2,7}-\d{2}-\d$")
+
+def is_valid_cas_number(cas_str):
+    """Check the CAS Registry Number format (digits-digits-checkdigit), e.g. 71-43-2."""
+    return bool(CAS_NUMBER_PATTERN.match(cas_str))
+
+def clean_cas_values(cas_list):
+    """
+    Filter a list of CAS values down to real CAS numbers only, dropping
+    anything that isn't a valid CAS Registry Number format - missing
+    values (NaN, None), placeholders ("not assessed", "no cas", ""),
+    and free-text material names (e.g. "wood", "steel"). Also
+    de-duplicates while preserving order.
+    """
+    cleaned = []
+    seen = set()
+    for cas in cas_list:
+        if cas is None or (isinstance(cas, float) and pd.isna(cas)):
+            continue
+        cas_str = str(cas).strip()
+        if not is_valid_cas_number(cas_str):
+            continue
+        if cas_str not in seen:
+            seen.add(cas_str)
+            cleaned.append(cas_str)
+    return cleaned
+
 def extract_info_from_DB(cas_list, db_path):
+    cas_list = clean_cas_values(cas_list)
 
     def log_missing(cas, table, issue, log_list):
         log_list.append({
@@ -2451,6 +2515,234 @@ def extract_info_from_DB(cas_list, db_path):
 
     return df, df_missing
 
+### Extract the C2C colour assessment hazards for a list of CAS numbers
+def extract_colour_assessment_C2C(cas_list, db_path):
+    """
+    Pull all the C2C colour assessment hazard columns from table
+    COLOUR_ASSESSMENT_C2C for the given CAS numbers, into one df with
+    a CAS column (renamed from "ref") and all the hazard columns.
+    """
+    cas_list = clean_cas_values(cas_list)
+
+    colour_assessment_cols = [
+        "C2C_assessment_carcinogenicity",
+        "C2C_assessment_disruption_of_endocrine_system",
+        "C2C_assessment_mutagenicity_genotoxicity",
+        "C2C_assessment_reproductive_toxicity",
+        "C2C_assessment_development_toxicity",
+        "C2C_assessment_neurotoxicity",
+        "C2C_assessment_oral_toxicity",
+        "C2C_assessment_inhalative_toxicity",
+        "C2C_assessment_dermal_toxicity",
+        "C2C_assessment_skin_eye_respiratory_corrosion_irritation",
+        "C2C_assessment_sensitization",
+        "C2C_assessment_fish_toxicity",
+        "C2C_assessment_invertebrate_toxicity",
+        "C2C_assessment_algae_toxicity",
+        "C2C_assessment_terrestrial_toxicity",
+        "C2C_assessment_other_species_toxicity",
+        "C2C_assessment_persistence",
+        "C2C_assessment_bioaccumulation",
+        "C2C_assessment_combined_pb_risk_flag",
+        "C2C_assessment_combined_aquatic_risk_flag",
+        "C2C_assessment_climatic_relevance_ozone_depletion_potential",
+    ]
+
+    if not cas_list:
+        return pd.DataFrame(columns=["CAS"] + colour_assessment_cols), pd.DataFrame()
+
+    # --------------------------
+    # connect DB (safe)
+    # --------------------------
+    try:
+        conn = sqlite3.connect(db_path)
+    except Exception as e:
+        print(f"[ERROR] Cannot connect to DB: {e}")
+        return pd.DataFrame(), pd.DataFrame([{"CAS": "ALL", "table": "COLOUR_ASSESSMENT_C2C", "issue": "DB connection failed"}])
+
+    selected_cols_sql = ", ".join([f'"{c}"' for c in ["ref"] + colour_assessment_cols])
+    placeholders = ", ".join(["?"] * len(cas_list))
+
+    # --------------------------
+    # query (safe)
+    # --------------------------
+    try:
+        query = f'''
+        SELECT {selected_cols_sql}
+        FROM COLOUR_ASSESSMENT_C2C
+        WHERE ref IN ({placeholders})
+        '''
+        df = pd.read_sql_query(query, conn, params=tuple(cas_list))
+    except Exception as e:
+        print(f"[ERROR] Cannot query COLOUR_ASSESSMENT_C2C: {e}")
+        conn.close()
+        return pd.DataFrame(), pd.DataFrame([{"CAS": "ALL", "table": "COLOUR_ASSESSMENT_C2C", "issue": str(e)}])
+
+    conn.close()
+
+    df = df.rename(columns={"ref": "CAS"})
+
+    # --------------------------
+    # MISSING CAS OUTPUT
+    # --------------------------
+    found_cas = set(df["CAS"])
+    missing_cas_log = [
+        {"CAS": cas, "table": "COLOUR_ASSESSMENT_C2C", "issue": "missing record"}
+        for cas in cas_list if cas not in found_cas
+    ]
+    df_missing = pd.DataFrame(missing_cas_log)
+
+    return df, df_missing
+
+### Build a C2C assessment df (product/material/contribution cols + DB hazards) from a scenarios df
+def build_c2c_assessment_df(scenarios_df, db_path):
+    """
+    Take a scenarios df (all or selected scenarios) and keep only the
+    product/material/contribution columns, then join the C2C colour
+    assessment hazards pulled from COLOUR_ASSESSMENT_C2C for the CAS
+    numbers present in it.
+    """
+    base_cols = [
+        product,
+        min_percent_in_product,
+        max_percent_in_product,
+        hom_mat,
+        "final_material_map",
+        "scenario_id",
+        "active",
+        "status_reason",
+        "min_contribution_prod",
+        "max_contribution_prod",
+        "min_contribution_hom_mat",
+        "max_contribution_hom_mat",
+        "CAS",
+    ]
+    base_cols = [c for c in base_cols if c in scenarios_df.columns]
+    c2c_df = scenarios_df[base_cols].copy()
+
+    cas_list = clean_cas_values(c2c_df["CAS"].tolist())
+    hazards_df, missing_cas_df = extract_colour_assessment_C2C(cas_list, db_path)
+    if not missing_cas_df.empty:
+        print("CAS missing from COLOUR_ASSESSMENT_C2C:", missing_cas_df)
+
+    c2c_df = c2c_df.merge(hazards_df, on="CAS", how="left")
+
+    # human-friendly column names for the saved excel
+    rename_map = {
+        "final_material_map": "Final Material Map",
+        "scenario_id": "Scenario ID",
+        "active": "Scenario Status",
+        "status_reason": "Scenario Status Reason",
+        "min_contribution_prod": "Minimal % of material in product",
+        "max_contribution_prod": "Maximal % of material in product",
+        "min_contribution_hom_mat": "Minimal % of material in homogenous material",
+        "max_contribution_hom_mat": "Maximal % of material in homogenous material",
+    }
+    for col in c2c_df.columns:
+        if col.startswith("C2C_assessment_"):
+            rename_map[col] = col.replace("_", " ")
+    c2c_df = c2c_df.rename(columns=rename_map)
+
+    return c2c_df
+
+### Save a C2C assessment df into the "detailed_overview" sheet of the C2C assessment template
+### Generate formula rows 3..target_last_row on a summary sheet by translating its row-2 "origin" formula
+# matches the hardcoded detailed_overview scan range in the template's formulas,
+# e.g. "$A$2:$A$50000" or "$I$2:$I$100000" -> group(1) keeps the "$COL$2:$COL$" part
+_SCAN_RANGE_PATTERN = re.compile(r"(\$[A-Za-z]{1,3}\$2:\$[A-Za-z]{1,3}\$)(?:50000|100000)")
+
+def _extend_formula_sheet(ws, target_last_row, scan_last_row):
+    if target_last_row < 2:
+        return
+
+    # columns that carry the origin formula in row 2 (skips blank spacer columns)
+    formula_cols = [c for c in range(1, ws.max_column + 1) if ws.cell(row=2, column=c).value is not None]
+
+    for col in formula_cols:
+        origin_cell = ws.cell(row=2, column=col)
+        origin_val = origin_cell.value
+        origin_text = origin_val.text if hasattr(origin_val, "text") else origin_val
+        origin_coord = origin_cell.coordinate
+        origin_style = origin_cell._style
+
+        # shrink the detailed_overview scan range to match the actual project size instead
+        # of always scanning the template's full 50000/100000-row headroom - this is the
+        # main thing that makes the summary sheets slow (or crash Excel) on large projects
+        origin_text = _SCAN_RANGE_PATTERN.sub(rf"\g<1>{scan_last_row}", origin_text)
+        origin_cell.value = ArrayFormula(ref=origin_coord, text=origin_text)
+
+        # parse the formula once, then cheaply re-translate it for every target row
+        translator = Translator(origin_text, origin=origin_coord)
+
+        for row in range(3, target_last_row + 1):
+            target_cell = ws.cell(row=row, column=col)
+            target_coord = target_cell.coordinate
+            translated = translator.translate_formula(target_coord)
+            target_cell.value = ArrayFormula(ref=target_coord, text=translated)
+            target_cell._style = origin_style
+
+def save_c2c_assessment_workbook(c2c_df, output_path, template_path=C2C_ASSESSMENT_TEMPLATE_PATH):
+    """
+    Copy templates/C2C_assessment_template.xlsx to output_path and write
+    c2c_df into its "detailed_overview" sheet (starting row 2). The
+    template's other sheets ("overview", "percentage_assessed",
+    "risk_assessed") ship with a single formula row (row 2); this
+    generates however many extra formula rows this project needs
+    (matched to len(c2c_df), capped at C2C_ASSESSMENT_TEMPLATE_MAX_ROWS)
+    AND shrinks each formula's detailed_overview scan range to match
+    (plus a small buffer) instead of always scanning the template's full
+    50000/100000-row range, so small/medium projects stay fast (and large
+    ones don't crash Excel) to recalculate. They then recalculate
+    automatically once the file is opened.
+    """
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(
+            f"C2C assessment template not found at: {template_path}\n"
+            "Check C2C_ASSESSMENT_TEMPLATE_PATH at the top of this file."
+        )
+
+    n_rows = len(c2c_df)
+    if n_rows > C2C_ASSESSMENT_TEMPLATE_MAX_ROWS:
+        print(
+            f"[WARNING] {n_rows} rows exceed the template's {C2C_ASSESSMENT_TEMPLATE_MAX_ROWS}-row cap - "
+            "the summary sheets will be incomplete for the extra rows."
+        )
+        n_rows = C2C_ASSESSMENT_TEMPLATE_MAX_ROWS
+
+    shutil.copy(template_path, output_path)
+
+    wb = openpyxl.load_workbook(output_path)
+    ws = wb["detailed_overview"]
+
+    template_headers = [cell.value for cell in ws[1] if cell.value is not None]
+    df_headers = list(c2c_df.columns)
+    if template_headers != df_headers:
+        print(
+            "[WARNING] detailed_overview headers no longer match the template.\n"
+            f"  template: {template_headers}\n"
+            f"  data:     {df_headers}\n"
+            "The 'overview' / 'percentage_assessed' / 'risk_assessed' formulas read fixed "
+            "columns and may now point at the wrong data - update the template."
+        )
+
+    for row_offset, row in enumerate(c2c_df.itertuples(index=False), start=2):
+        for col_offset, value in enumerate(row, start=1):
+            ws.cell(row=row_offset, column=col_offset, value=None if pd.isna(value) else value)
+
+    # generate as many summary-sheet formula rows as this project needs (row 2 already ships in the template),
+    # and shrink each formula's detailed_overview scan range to match (plus a little headroom) instead of
+    # always scanning the template's full 50000/100000-row range - this is what actually kills Excel on
+    # large projects, since every formula cell re-scans that whole range
+    target_last_row = n_rows + 1 if n_rows >= 1 else 2
+    scan_last_row = target_last_row + C2C_ASSESSMENT_SCAN_RANGE_BUFFER
+    for sheet_name in ("overview", "percentage_assessed", "risk_assessed"):
+        _extend_formula_sheet(wb[sheet_name], target_last_row, scan_last_row)
+
+    # force Excel to recalculate the formula sheets when the file is opened
+    wb.calculation.fullCalcOnLoad = True
+
+    wb.save(output_path)
+
 #################################################################
 ### Calculating with mixture rules
 def run_wint_C2C_mixture_rules():
@@ -2510,6 +2802,8 @@ def run_wint_C2C_mixture_rules():
     saving_CAS = os.path.join(saving_dir, f"CAS_{time}_{file_name}.xlsx")
     C2C_mixture_rules_saving = os.path.join(saving_dir, f"mixture_rules_{time}_{file_name}.xlsx")
     saving_all_c2c_mixture_scenario_results = os.path.join(saving_dir, f"all_scenarios_mixture_rules_{time}_{file_name}.xlsx")
+    saving_c2c_assessment_all_scenarios = os.path.join(saving_dir, f"C2C_assessment_all_scenarios_{time}_{file_name}.xlsx")
+    saving_c2c_assessment_selected_scenarios = os.path.join(saving_dir, f"C2C_assessment_selected_scenarios_{time}_{file_name}.xlsx")
 
     print("--------------------------------------------------------------")
     summary_df.to_excel(saving_summary, index=False)
@@ -2530,6 +2824,9 @@ def run_wint_C2C_mixture_rules():
         all_scenarios_df.to_excel(saving_all_scenarios, index=False)
         all_c2c_scenario_results_df.to_excel(saving_all_c2c_mixture_scenario_results, index=False)
         print("Saved all scenarios to file: ", saving_all_scenarios)
+        c2c_assessment_all_scenarios_df = build_c2c_assessment_df(all_scenarios_df, db_path)
+        save_c2c_assessment_workbook(c2c_assessment_all_scenarios_df, saving_c2c_assessment_all_scenarios)
+        print("Saved C2C assessment for all scenarios to file: ", saving_c2c_assessment_all_scenarios)
     print("--------------------------------------------------------------")
     print("Do you want to save selected scenarios? (y/n)")
     user_input = input("").strip().lower()
@@ -2538,6 +2835,9 @@ def run_wint_C2C_mixture_rules():
         selected_df = build_selected_scenarios_df(df, scenarios, chosen)
         selected_df.to_excel(saving_selected, index=False)
         print("Saved the selected scenarios to file: ", saving_selected)
+        c2c_assessment_selected_scenarios_df = build_c2c_assessment_df(selected_df, db_path)
+        save_c2c_assessment_workbook(c2c_assessment_selected_scenarios_df, saving_c2c_assessment_selected_scenarios)
+        print("Saved C2C assessment for selected scenarios to file: ", saving_c2c_assessment_selected_scenarios)
     print("--------------------------------------------------------------")
     print("Calculations finished. Have a nice day!")
 
@@ -2610,22 +2910,93 @@ def run_with_percentage_assessed():
     print("--------------------------------------------------------------")
     print("Calculations finished. Have a nice day!")
 
+### Smaller projects: C2C assessment only, no mixture rules (all scenarios only)
+def run_c2c_assessment_only():
+    print("--------------------------------------------------------------")
+    print("Select the Excel file (MAS) to analyse.")
+    # open the program
+    df, file_name, default_folder = open_excel_file()
+    print("--------------------------------------------------------------")
+    # Select folder for saving:
+    print("Select a folder you want to save your files in.")
+    saving = select_folder(default_folder)
+    saving_dir = os.path.abspath(saving)
+    print("--------------------------------------------------------------")
+    db_path, db_name = open_sql_file()
+    print("--------------------------------------------------------------")
+    print("Initiating...")
+    # calculate the maximum tier
+    max_tier = get_highest_tier(df, col_CAS)
+    print("Max Tier found: ", max_tier)
+    # standardize & clean the df
+    df = clean_data(df, max_tier)
+    # add columns for analysis
+    df = add_helper_columns(df, max_tier)
+    df = add_final_map(df, max_tier)
+    # how many CAS:
+    CAS_count, cas_list = count_CAS_unique(df, "CAS")
+    print("Total unique CAS found: ", CAS_count)
+    print("--------------------------------------------------------------")
+    # identify alternatives & make scenarios
+    print("Generating scenarios...")
+    df = identify_alternative_groups(df, max_tier)
+    scenarios = generate_scenarios(df, max_tier)
+    scenario_ids = [x['scenario_id'] for x in scenarios]
+    print("Scenarios generated. Total number of scenarios: ", len(scenarios))
+    print("Calculating... This might take a while...")
+    # C2C assessment only works for all scenarios (no selection here)
+    all_scenarios_df = build_selected_scenarios_df(df, scenarios, scenario_ids)
+    print("--------------------------------------------------------------")
+
+    # the template's formula sheets only cover detailed_overview rows 2..50000 -
+    # bail out early (before hitting the DB) if this project is too big for it
+    if len(all_scenarios_df) > C2C_ASSESSMENT_TEMPLATE_MAX_ROWS:
+        print(f"The project is too big for a fast assessment as it generates more than "
+              f"{C2C_ASSESSMENT_TEMPLATE_MAX_ROWS} rows ({len(all_scenarios_df)} rows).")
+        print("The C2C Assessment template (option C) cannot summarise a project this size.")
+        print("Do you want to proceed with option A or option B instead? \n"
+              "A: just % assessed \n"
+              "B: % assessed and mixture rules")
+        fallback_choice = ""
+        while fallback_choice not in ["A", "B"]:
+            fallback_choice = input("Type A or B: ").strip().upper()
+            if fallback_choice not in ["A", "B"]:
+                print("Please type A or B.")
+        print("--------------------------------------------------------------")
+        if fallback_choice == "A":
+            return run_with_percentage_assessed()
+        else:
+            return run_wint_C2C_mixture_rules()
+
+    print("Pulling C2C colour assessment hazards from the DB and building the C2C assessment excel...")
+    c2c_assessment_all_scenarios_df = build_c2c_assessment_df(all_scenarios_df, db_path)
+    ### Saving:
+    now = datetime.now()
+    time = now.strftime("%Y%m%d")
+    saving_c2c_assessment_all_scenarios = os.path.join(saving_dir, f"C2C_assessment_all_scenarios_{time}_{file_name}.xlsx")
+    save_c2c_assessment_workbook(c2c_assessment_all_scenarios_df, saving_c2c_assessment_all_scenarios)
+    print("Saved C2C assessment for all scenarios to file: ", saving_c2c_assessment_all_scenarios)
+    print("--------------------------------------------------------------")
+    print("Calculations finished. Have a nice day!")
 
 ### Start the program:
 # ---- Ask user ----
 choice = ""
-while choice not in ["A", "B"]:
+while choice not in ["A", "B", "C"]:
     choice = input("Which calculation do you want to run? \n"
                    "A: just % assessed \n"
                    "B: % assessed and mixture rules \n"
-                   "Type A or B").strip().upper()
-    if choice not in ["A", "B"]:
-        print("Please type A or B.")
+                   "C: Smaller projects - C2C Assessment without mixture rules (all scenarios only) \n"
+                   "Type A, B or C").strip().upper()
+    if choice not in ["A", "B", "C"]:
+        print("Please type A, B or C.")
 
 # ---- Execute ----
 if choice == "A":
     result = run_with_percentage_assessed()
-else:
+elif choice == "B":
     result = run_wint_C2C_mixture_rules()
+else:
+    result = run_c2c_assessment_only()
 
 print(result)
