@@ -107,6 +107,43 @@ def load_cas_list_from_excel(excel_path):
         return CASall, duplicate_count, duplicated_cas
 
 
+def load_cas_list_from_folder(folder_excels):
+    """Builds a CAS list directly from the CPS excel filenames in `folder_excels`,
+    instead of a manually curated CAS excel - useful for rebuilding a database from
+    scratch using exactly the CPS files that are actually on disk (avoids carrying
+    over stray/fake CAS numbers that only ever existed in the database, not as files).
+    Uses the same filename convention ("CAS <number> ....xlsx/.xlsm") as
+    check_if_excel_is_in_folder. Returns (CASall, duplicate_count, duplicated_cas) -
+    duplicate_count/duplicated_cas are always (0, []) here since folder listings can't
+    contain the same filename twice; kept for a matching return shape with
+    load_cas_list_from_excel so callers don't need to special-case the source."""
+    file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
+    cas_pattern = re.compile(r'CAS (\d{2,7}[-‐-–—]\d{2,3}[-‐-–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
+
+    found = set()
+    skipped = []
+    for filename in os.listdir(folder_excels):
+        if filename.startswith("~$"):
+            continue  # Excel's own temp lock file for a workbook that's currently open - not real data
+        full_path = os.path.join(folder_excels, filename)
+        if not os.path.isfile(full_path):
+            continue
+        if not file_pattern.search(filename):
+            continue
+        match_inv = cas_pattern.search(filename)
+        if match_inv:
+            found.add(match_inv.group(1))
+        else:
+            skipped.append(filename)
+
+    CASall = sorted(found)
+    _log(f"Found {len(CASall)} CAS from CPS filenames in {folder_excels}.")
+    if skipped:
+        _log(f":red[{len(skipped)} file(s) in the CPS folder look like CPS files but no CAS number could be parsed from the filename: {', '.join(skipped)}]")
+
+    return CASall, 0, []
+
+
 ### FUNCTIONS
 def make_a_backup(db_path, backup_dir):
     """Makes a backup of the DB with a date (in .db)
@@ -234,6 +271,26 @@ def checking_if_CAS_exists(CASall, db_path):
         connection = sqlite3.connect(db_path)
         cursor = connection.cursor()
 
+        # On a brand-new/empty database these tables won't exist yet - without this,
+        # the very first query below raises "no such table" and the except branch
+        # swallows it, silently returning found=[] AND not_found=[] for every CAS
+        # (so the whole pipeline looks like it did nothing). Bootstrap them so a
+        # fresh database correctly reports every CAS as not-yet-found instead.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS C2C_DATABASE (
+                ID TEXT PRIMARY KEY,
+                LastUpdate TEXT,
+                FileName TEXT,
+                Comments TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS GENERALINFO (
+                ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                ref TEXT
+            )
+        """)
+
         for cas in CASall:
             # looks at ID and
             cursor.execute(
@@ -281,6 +338,8 @@ def check_if_excel_is_in_folder(folder_excels, CAS_list):
     inv_in_folder = set()
 
     for filename in os.listdir(folder_excels):
+        if filename.startswith("~$"):
+            continue  # Excel's own temp lock file for a workbook that's currently open - not real data
         full_path = os.path.join(folder_excels, filename)
         if os.path.isfile(full_path):
             match = file_pattern.search(filename)
@@ -514,6 +573,8 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
         ec_pattern = re.compile(r'EC (\d{2,7}[-‐‑–—]\d{3}[-‐‑–—]\d{1})')
 
         for filename in os.listdir(folder_excels):
+            if filename.startswith("~$"):
+                continue  # Excel's own temp lock file for a workbook that's currently open - not real data
             full_path = os.path.join(folder_excels, filename)
             if not os.path.isfile(full_path):
                 continue
@@ -1733,8 +1794,13 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
 
         if table_exists.empty:
             df.to_sql(table_name, conn, if_exists="replace", index=False)
-            print(f"New table created {table_name}")
-            conn.close()
+            _log(f"New table created {table_name}")
+            # NOTE: this used to call conn.close() here. `conn` is the single connection
+            # shared by the whole extract_info_form_excel_to_DB loop over every CAS being
+            # ingested - closing it after just the first CAS (the one that happens to
+            # trigger table-creation) broke every subsequent CAS in the same run with
+            # "Cannot operate on a closed database". This function doesn't own the
+            # connection, so it must not close it - the caller's own finally block does.
             return
 
         # Read existing table columns
@@ -1769,7 +1835,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
 
         if old_df.empty:
             df.to_sql(table_name, conn, if_exists="append", index=False)
-            print(f"New record added {ref}")
+            _log(f"New record added {ref}")
 
         else:
             old_row = old_df.iloc[0]
@@ -1782,7 +1848,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             new_compare = new_row.fillna("").astype(str)
 
             if old_compare.equals(new_compare):
-                print("No change needed")
+                _log("No change needed")
 
             else:
                 conn.execute(
@@ -1791,7 +1857,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 )
 
                 df.to_sql(table_name, conn, if_exists="append", index=False)
-                print(f"Data has changed, updating")
+                _log(f"Data has changed, updating")
 
 
     try:
@@ -1818,6 +1884,8 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
 
         # Loop through Excel files with CAS number and add their info from the template
         for filename in os.listdir(folder_excels):
+            if filename.startswith("~$"):
+                continue  # Excel's own temp lock file for a workbook that's currently open - not real data
             full_path = os.path.join(folder_excels, filename)
             if not os.path.isfile(full_path):
                 continue
@@ -1874,8 +1942,14 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 )
             )
 
-            # Open the Excel file
-            CPS_wb_obj = openpyxl.load_workbook(full_path)
+            # Open the Excel file. A single unreadable/corrupt file (e.g. a stray Excel
+            # lock file, or a genuinely damaged workbook) must not abort the whole batch -
+            # log it clearly and move on to the next CAS instead of crashing the run.
+            try:
+                CPS_wb_obj = openpyxl.load_workbook(full_path)
+            except Exception as e:
+                _log(f":red[Could not open '{filename}' for {inv_number} - skipping this CAS ({e}).]")
+                continue
             CPSsheet = CPS_wb_obj.active
 
             # Add general info
@@ -2039,6 +2113,13 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             # COLOUR ASSESSMENT
             df_c2c_hazards = extract_info_from_manual_assessment(ref = inv_number, value_col = "I", file_path = full_path)
             _log(df_c2c_hazards)
+            # Flag when every colour field came back empty - this almost always means the CPS file's
+            # formula cells have no cached value yet (openpyxl can't compute formulas; it only reads
+            # whatever Excel last cached). The fix is to open and re-save that file in Excel once so
+            # the formulas get calculated, then re-run screening for this CAS.
+            hazard_cols = [c for c in df_c2c_hazards.columns if c != "ref"]
+            if hazard_cols and df_c2c_hazards[hazard_cols].iloc[0].isna().all():
+                _log(f":red[No colour-assessment values found for {inv_number} - the CPS file's formulas likely have no cached result yet (open and re-save '{os.path.basename(full_path)}' in Excel, then re-run screening).]")
             save_or_replace_if_changed(df=df_c2c_hazards,conn=connection,table_name="COLOUR_ASSESSMENT_C2C",ref=inv_number)
             _log("Hazards added.")
 
@@ -3516,17 +3597,18 @@ def derive_paths(db_path):
     }
 
 
-def run_cas_screening(cas_excel_path, db_path):
+def run_cas_screening(cas_excel_path, db_path, use_cps_folder=False):
     """Runs the full 'screen selected CAS' pipeline. Returns a dict with all the result lists/values
-    the source computes so a GUI can show a summary."""
+    the source computes so a GUI can show a summary.
+    cas_excel_path: path to a CAS excel (ignored when use_cps_folder=True - pass None or "").
+    use_cps_folder: when True, builds the CAS list from every "CAS <number> ...xlsx/.xlsm" file
+    already present in the database's CPS folder instead of from an uploaded excel - useful for
+    rebuilding a database from scratch using exactly the CPS files on disk, without carrying over
+    stray/fake CAS numbers that only ever existed in a previous database."""
     CAS_not_in_DB_but_in_excel = []
     CAS_not_in_DB_and_not_in_excel = []
     CAS_older_than_3_years = []
     CAS_needing_update = []
-
-    CASall, duplicate_count, duplicated_cas = load_cas_list_from_excel(cas_excel_path)
-    if not CASall:
-        raise ValueError("The CAS excel has no usable CAS numbers - nothing to screen.")
 
     #### Create/update C2C database with CAS numbers from Excel files ####
     # if connceted to database you can press run
@@ -3544,6 +3626,13 @@ def run_cas_screening(cas_excel_path, db_path):
         folder_for_saving_excel_exports = paths["folder_for_saving_excel_exports"]
         folder_for_saving_CPS = paths["folder_for_saving_CPS"]
         db_backup_for_saving = paths["db_backup_for_saving"]
+
+        if use_cps_folder:
+            CASall, duplicate_count, duplicated_cas = load_cas_list_from_folder(folder_excels)
+        else:
+            CASall, duplicate_count, duplicated_cas = load_cas_list_from_excel(cas_excel_path)
+        if not CASall:
+            raise ValueError("No usable CAS numbers were found - nothing to screen.")
 
         ### Beginning: before starting download all available json files and make a backup of the DB
         _log(":blue[Creating a DB back up.]")

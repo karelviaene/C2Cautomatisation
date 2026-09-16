@@ -1,26 +1,17 @@
 ### C2C Database Communication - desktop app
-### A small tkinter window wrapping DB_communication_core.py's pipeline (itself a
-### faithful, non-Streamlit port of streamlit_DB_communication_CURRENT.py): pick the
-### CAS excel and the SQLite database inline (no instructional pop-ups, just Browse
-### buttons and a path field), then either "Run CAS Screening" (backup, ECHA CnL
-### lookup, DB sync, CPS excel generation/ingestion, report export) or "Export DB to
-### Excel" - watch a bouncing magnifying glass while it works, get a "Done!" screen
-### with confetti once finished.
+### A small tkinter window wrapping DB_communication_core.py's pipeline (originally a
+### mechanical, non-Streamlit port of streamlit_DB_communication_CURRENT.py, since
+### patched - see FIXED ISSUES below): pick the CAS excel (or use every CAS already
+### in the CPS folder) and the SQLite database inline (no instructional pop-ups, just
+### Browse buttons and a path field), then either "Run CAS Screening" (backup, ECHA
+### CnL lookup, DB sync, CPS excel generation/ingestion, report export) or "Export DB
+### to Excel" - watch a bouncing magnifying glass while it works, get a "Done!"
+### screen with confetti once finished.
 ### Reuses DB_communication_core.py's logic by import (that file is import-only, no
 ### __main__ guard that runs anything) rather than duplicating it - keep the two in
-### sync if the pipeline itself changes. DB_communication_core.py is a mechanical
-### port of streamlit_DB_communication_CURRENT.py and intentionally keeps that
-### file's known quirks/bugs unfixed (see KNOWN ISSUES below) - the source file is
-### never modified by this app.
-###
-### KNOWN ISSUES ported over from the original Streamlit script (flagged, not fixed):
-### - `if CnL_json is None: _log(...success...)` in run_cas_screening looks inverted
-###   (a "success" message fires when the CnL lookup returned nothing).
-### - Some DB helper functions can raise UnboundLocalError out of their own `finally`
-###   blocks if the initial sqlite3.connect() itself fails, masking the real error.
-### - Generated CPS excels are saved with a hardcoded "Test " filename prefix.
-### - Several nested Excel-extraction helpers swallow SQLite errors via print() only.
-### - No pre-flight check that the CAS excel actually contains rows before running.
+### sync if the pipeline itself changes. The original streamlit_DB_communication_
+### CURRENT.py source file is never read or modified by this app or by core.py.
+
 
 import os
 import sys
@@ -137,6 +128,17 @@ class App(tk.Tk):
             on_change=lambda p: self._remember("last_cas_file", p),
         )
         self.cas_row.pack(fill="x", pady=4)
+
+        self.use_cps_folder_var = tk.BooleanVar(value=False)
+        self.use_cps_folder_check = ttk.Checkbutton(
+            outer,
+            text="Use every CAS already in the database's CPS folder instead (ignores the CAS excel above)"
+                 " - handy for rebuilding a database from scratch with exactly the files on disk.",
+            variable=self.use_cps_folder_var,
+            command=self._on_toggle_cps_folder,
+        )
+        self.use_cps_folder_check.pack(anchor="w", pady=(0, 4))
+
         self.db_row = PathRow(
             outer, "SQL database:", "open_file", [("Database files", "*.db *.sqlite *.sqlite3"), ("All files", "*.*")],
             initial=self._remembered("last_db_file", is_dir=False),
@@ -282,6 +284,15 @@ class App(tk.Tk):
         self._config[key] = path
         save_config(self._config)
 
+    def _on_toggle_cps_folder(self):
+        # the CAS excel picker is irrelevant when screening "everything in the CPS folder"
+        disabled = self.use_cps_folder_var.get()
+        for child in self.cas_row.winfo_children():
+            if isinstance(child, ttk.Entry):
+                child.configure(state="disabled" if disabled else "readonly")
+            else:
+                child.configure(state="disabled" if disabled else "normal")
+
     def _clear_log(self):
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
@@ -316,20 +327,23 @@ class App(tk.Tk):
     def _on_run_screening(self):
         if self._running:
             return
+        use_cps_folder = self.use_cps_folder_var.get()
         cas_path = self.cas_row.get()
         db_path = self.db_row.get()
-        if not cas_path or not db_path:
+        if not db_path or (not use_cps_folder and not cas_path):
             self.status_label.configure(text="Please select the CAS excel and the database first.", foreground=BAD)
             return
 
         self._begin_run()
-        thread = threading.Thread(target=self._run_screening_worker, args=(cas_path, db_path), daemon=True)
+        thread = threading.Thread(
+            target=self._run_screening_worker, args=(cas_path, db_path, use_cps_folder), daemon=True
+        )
         thread.start()
 
-    def _run_screening_worker(self, cas_path, db_path):
+    def _run_screening_worker(self, cas_path, db_path, use_cps_folder):
         try:
             db_path = core.validate_db_path(db_path)
-            result = core.run_cas_screening(cas_path, db_path)
+            result = core.run_cas_screening(cas_path, db_path, use_cps_folder=use_cps_folder)
             self.after(0, self._on_screening_success, result)
         except Exception as e:
             tb = traceback.format_exc()
