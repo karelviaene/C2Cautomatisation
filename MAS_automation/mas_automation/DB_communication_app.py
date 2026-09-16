@@ -1,15 +1,31 @@
-### Quick C2C Assessment - desktop app
-### A small tkinter window wrapping MAS_quick_C2C_assessment_static.py's pipeline:
-### pick the 3 inputs inline (no instructional pop-ups, just Browse buttons and a
-### path field), click Run, watch a bouncing magnifying glass while it works, and
-### get a "Done!" screen with confetti once the files are saved.
-### Reuses MAS_quick_C2C_assessment_static.py's logic by import (that file has a
-### __main__ guard, so importing it does not auto-run anything) rather than
-### duplicating it - keep the two in sync if the pipeline itself changes.
+### C2C Database Communication - desktop app
+### A small tkinter window wrapping DB_communication_core.py's pipeline (itself a
+### faithful, non-Streamlit port of streamlit_DB_communication_CURRENT.py): pick the
+### CAS excel and the SQLite database inline (no instructional pop-ups, just Browse
+### buttons and a path field), then either "Run CAS Screening" (backup, ECHA CnL
+### lookup, DB sync, CPS excel generation/ingestion, report export) or "Export DB to
+### Excel" - watch a bouncing magnifying glass while it works, get a "Done!" screen
+### with confetti once finished.
+### Reuses DB_communication_core.py's logic by import (that file is import-only, no
+### __main__ guard that runs anything) rather than duplicating it - keep the two in
+### sync if the pipeline itself changes. DB_communication_core.py is a mechanical
+### port of streamlit_DB_communication_CURRENT.py and intentionally keeps that
+### file's known quirks/bugs unfixed (see KNOWN ISSUES below) - the source file is
+### never modified by this app.
+###
+### KNOWN ISSUES ported over from the original Streamlit script (flagged, not fixed):
+### - `if CnL_json is None: _log(...success...)` in run_cas_screening looks inverted
+###   (a "success" message fires when the CnL lookup returned nothing).
+### - Some DB helper functions can raise UnboundLocalError out of their own `finally`
+###   blocks if the initial sqlite3.connect() itself fails, masking the real error.
+### - Generated CPS excels are saved with a hardcoded "Test " filename prefix.
+### - Several nested Excel-extraction helpers swallow SQLite errors via print() only.
+### - No pre-flight check that the CAS excel actually contains rows before running.
 
 import os
 import sys
 import io
+import re
 import json
 import math
 import random
@@ -21,7 +37,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import MAS_quick_C2C_assessment_static as core
+import DB_communication_core as core
 
 APP_BG = "#f4f6f8"
 ACCENT = "#2563eb"
@@ -29,8 +45,14 @@ GOOD = "#16a34a"
 BAD = "#dc2626"
 CANVAS_W, CANVAS_H = 520, 140
 
-# remembers the last-used save folder across runs of the app
-CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".mas_quick_c2c_app_config.json")
+# remembers the last-used paths across runs of the app
+CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".db_communication_app_config.json")
+
+# the ported core module still emits Streamlit's ":color[text]" markdown-ish markers
+# (e.g. ":red[CAS older than 3 years: ...]") since that text lived inside the log
+# messages themselves, not in st.* call structure - strip it back to plain text (and
+# use it to color the line) instead of showing the raw markup to the user.
+COLOR_MARKER_RE = re.compile(r"^:(\w+)\[(.*)\]$", re.DOTALL)
 
 
 def load_config():
@@ -46,46 +68,7 @@ def save_config(cfg):
         with open(CONFIG_PATH, "w") as f:
             json.dump(cfg, f)
     except Exception:
-        pass  # not critical - just means the next run won't remember the folder
-
-
-def run_pipeline(mas_path, saving_dir, db_path, log):
-    """Runs the actual assessment, writing progress lines to `log` (a callable)."""
-    file_name = os.path.basename(mas_path)
-    df = core.pd.read_excel(mas_path)
-
-    log("Reading MAS file and detecting tier depth...")
-    max_tier = core.get_highest_tier(df, core.col_CAS)
-    log(f"Max tier found: {max_tier}")
-
-    df = core.clean_data(df, max_tier)
-    df = core.add_helper_columns(df, max_tier)
-    df = core.add_final_map(df, max_tier)
-
-    cas_count, _ = core.count_CAS_unique(df, "CAS")
-    log(f"Unique CAS found: {cas_count}")
-
-    log("Generating scenarios...")
-    df = core.identify_alternative_groups(df, max_tier)
-    scenarios = core.generate_scenarios(df, max_tier)
-    scenario_ids = [s["scenario_id"] for s in scenarios]
-    log(f"Scenarios generated: {len(scenarios)}")
-
-    log("Building the detailed dataset (this can take a while for large projects)...")
-    all_scenarios_df = core.build_selected_scenarios_df(df, scenarios, scenario_ids)
-    log(f"Detailed rows generated: {len(all_scenarios_df)}")
-
-    log("Pulling C2C colour assessment hazards from the database...")
-    c2c_df, missing_cas_df = core.build_c2c_assessment_df(all_scenarios_df, db_path)
-    if not missing_cas_df.empty:
-        log(f"{len(missing_cas_df)} CAS not found in the database (flagged in the overview sheet).")
-
-    log("Saving the assessment excel file(s)...")
-    date_str = datetime.now().strftime("%Y%m%d")
-    saved_paths = core.save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, date_str)
-    for p in saved_paths:
-        log(f"Saved: {p}")
-    return saved_paths
+        pass  # not critical - just means the next run won't remember the paths
 
 
 class PathRow(ttk.Frame):
@@ -127,7 +110,7 @@ class PathRow(ttk.Frame):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Quick C2C Assessment")
+        self.title("C2C Database Communication")
         self.configure(bg=APP_BG)
         self.resizable(False, False)
 
@@ -141,25 +124,19 @@ class App(tk.Tk):
         outer = ttk.Frame(self, padding=16)
         outer.pack(fill="both", expand=True)
 
-        ttk.Label(outer, text="Quick C2C Assessment", font=("Helvetica", 16, "bold")).pack(anchor="w")
+        ttk.Label(outer, text="C2C Database Communication", font=("Helvetica", 16, "bold")).pack(anchor="w")
         ttk.Label(
             outer,
-            text="No mixture rules - pulls colour hazards from the DB, builds the assessment excel(s).",
+            text="Screens CAS against ECHA CnL and the C2C database, or exports the DB to Excel.",
             foreground="#555",
         ).pack(anchor="w", pady=(0, 12))
 
-        self.mas_row = PathRow(
-            outer, "MAS excel:", "open_file", [("Excel files", "*.xlsx *.xls"), ("All files", "*.*")],
-            initial=self._remembered("last_mas_file", is_dir=False),
-            on_change=lambda p: self._remember("last_mas_file", p),
+        self.cas_row = PathRow(
+            outer, "CAS excel:", "open_file", [("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")],
+            initial=self._remembered("last_cas_file", is_dir=False),
+            on_change=lambda p: self._remember("last_cas_file", p),
         )
-        self.mas_row.pack(fill="x", pady=4)
-        self.folder_row = PathRow(
-            outer, "Save folder:", "folder",
-            initial=self._remembered("last_folder", is_dir=True),
-            on_change=lambda p: self._remember("last_folder", p),
-        )
-        self.folder_row.pack(fill="x", pady=4)
+        self.cas_row.pack(fill="x", pady=4)
         self.db_row = PathRow(
             outer, "SQL database:", "open_file", [("Database files", "*.db *.sqlite *.sqlite3"), ("All files", "*.*")],
             initial=self._remembered("last_db_file", is_dir=False),
@@ -169,8 +146,10 @@ class App(tk.Tk):
 
         btn_row = ttk.Frame(outer)
         btn_row.pack(fill="x", pady=(12, 8))
-        self.run_button = ttk.Button(btn_row, text="Run Assessment", command=self._on_run)
+        self.run_button = ttk.Button(btn_row, text="Run CAS Screening", command=self._on_run_screening)
         self.run_button.pack(side="left")
+        self.export_button = ttk.Button(btn_row, text="Export DB to Excel", command=self._on_export_db)
+        self.export_button.pack(side="left", padx=(8, 0))
         self.status_label = ttk.Label(btn_row, text="Idle", foreground="#555")
         self.status_label.pack(side="left", padx=12)
 
@@ -180,16 +159,32 @@ class App(tk.Tk):
 
         log_frame = ttk.Frame(outer)
         log_frame.pack(fill="both", expand=True)
-        self.log_text = tk.Text(log_frame, width=78, height=10, state="disabled", wrap="word")
+        self.log_text = tk.Text(log_frame, width=100, height=22, state="disabled", wrap="word")
         self.log_text.pack(side="left", fill="both", expand=True)
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.pack(side="right", fill="y")
         self.log_text.configure(yscrollcommand=scrollbar.set)
+        self.log_text.tag_configure("blue", foreground="#1d4ed8")
+        self.log_text.tag_configure("green", foreground=GOOD)
+        self.log_text.tag_configure("red", foreground=BAD)
+
+        # route the core module's log messages to this window (module-level, so
+        # only one pipeline should run at a time - enforced below via self._running)
+        core.log_callback = self._log_threadsafe
 
     # ---------------------------------------------------------------- log
     def _log(self, message):
+        tag = None
+        match = COLOR_MARKER_RE.match(message)
+        if match:
+            tag, message = match.group(1), match.group(2)
+            if tag not in ("blue", "green", "red"):
+                tag = None
         self.log_text.configure(state="normal")
-        self.log_text.insert("end", message + "\n")
+        if tag:
+            self.log_text.insert("end", message + "\n", tag)
+        else:
+            self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
@@ -287,52 +282,93 @@ class App(tk.Tk):
         self._config[key] = path
         save_config(self._config)
 
-    # -------------------------------------------------------------- run
-    def _on_run(self):
-        if self._running:
-            return
-        mas_path = self.mas_row.get()
-        saving_dir = self.folder_row.get()
-        db_path = self.db_row.get()
-
-        if not mas_path or not saving_dir or not db_path:
-            self.status_label.configure(text="Please select the MAS excel, save folder, and database first.", foreground=BAD)
-            return
-
-        self._running = True
-        self.run_button.configure(state="disabled")
-        self.status_label.configure(text="Running...", foreground=ACCENT)
+    def _clear_log(self):
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
+
+    def _begin_run(self):
+        self._running = True
+        self.run_button.configure(state="disabled")
+        self.export_button.configure(state="disabled")
+        self.status_label.configure(text="Running...", foreground=ACCENT)
+        self._clear_log()
         self._start_spinner()
 
-        thread = threading.Thread(target=self._worker, args=(mas_path, saving_dir, db_path), daemon=True)
-        thread.start()
-
-    def _worker(self, mas_path, saving_dir, db_path):
-        try:
-            saved_paths = run_pipeline(mas_path, saving_dir, db_path, self._log_threadsafe)
-            self.after(0, self._on_success, saved_paths)
-        except Exception as e:
-            tb = traceback.format_exc()
-            self.after(0, self._on_failure, str(e), tb)
-
-    def _on_success(self, saved_paths):
+    def _end_run_ok(self, status_text):
         self._running = False
         self._stop_spinner()
         self.run_button.configure(state="normal")
-        self.status_label.configure(text=f"Done - {len(saved_paths)} file(s) saved.", foreground=GOOD)
-        self._log(f"\nFinished. {len(saved_paths)} file(s) saved.")
+        self.export_button.configure(state="normal")
+        self.status_label.configure(text=status_text, foreground=GOOD)
         self._start_confetti()
 
-    def _on_failure(self, error_message, tb):
+    def _end_run_failed(self, error_message, tb):
         self._running = False
         self._stop_spinner()
         self.run_button.configure(state="normal")
+        self.export_button.configure(state="normal")
         self.status_label.configure(text="Failed - see log below.", foreground=BAD)
         self._log(f"\n[ERROR] {error_message}\n{tb}")
         self._draw_error(error_message)
+
+    # ------------------------------------------------------ run screening
+    def _on_run_screening(self):
+        if self._running:
+            return
+        cas_path = self.cas_row.get()
+        db_path = self.db_row.get()
+        if not cas_path or not db_path:
+            self.status_label.configure(text="Please select the CAS excel and the database first.", foreground=BAD)
+            return
+
+        self._begin_run()
+        thread = threading.Thread(target=self._run_screening_worker, args=(cas_path, db_path), daemon=True)
+        thread.start()
+
+    def _run_screening_worker(self, cas_path, db_path):
+        try:
+            db_path = core.validate_db_path(db_path)
+            result = core.run_cas_screening(cas_path, db_path)
+            self.after(0, self._on_screening_success, result)
+        except Exception as e:
+            tb = traceback.format_exc()
+            self.after(0, self._end_run_failed, str(e), tb)
+
+    def _on_screening_success(self, result):
+        if result is None:
+            self._end_run_failed("The database path is not a valid file.", "")
+            return
+        n_found = len(result.get("found", []))
+        n_not_found = len(result.get("not_found", []))
+        self._log(f"\nFinished. {n_found} CAS found in DB, {n_not_found} not found. Report: {result.get('out_file')}")
+        self._end_run_ok(f"Done - {n_found} found, {n_not_found} not found.")
+
+    # ---------------------------------------------------------- export DB
+    def _on_export_db(self):
+        if self._running:
+            return
+        db_path = self.db_row.get()
+        if not db_path:
+            self.status_label.configure(text="Please select the database first.", foreground=BAD)
+            return
+
+        self._begin_run()
+        thread = threading.Thread(target=self._export_db_worker, args=(db_path,), daemon=True)
+        thread.start()
+
+    def _export_db_worker(self, db_path):
+        try:
+            db_path = core.validate_db_path(db_path)
+            core.export_db_to_excel(db_path)
+            self.after(0, self._on_export_success)
+        except Exception as e:
+            tb = traceback.format_exc()
+            self.after(0, self._end_run_failed, str(e), tb)
+
+    def _on_export_success(self):
+        self._log("\nFinished exporting the database to Excel.")
+        self._end_run_ok("Done - database exported.")
 
 
 if __name__ == "__main__":

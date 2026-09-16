@@ -54,7 +54,7 @@ CONDITIONAL_FORMATTING_ROW_HEADROOM = 200000
 ### computed from the FULL data regardless of the split) plus one
 ### detailed_overview file per product - and, if even a single product's data
 ### is still too big, further batched by scenario within that product.
-DETAILED_OVERVIEW_ROW_CAP = 30000
+DETAILED_OVERVIEW_ROW_CAP = 50000
 ########################################################################
 
 ### Adjust cols names if the template changes
