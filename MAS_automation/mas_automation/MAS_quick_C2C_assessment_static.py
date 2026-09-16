@@ -31,7 +31,7 @@ import sqlite3
 import openpyxl
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import PatternFill, Font
+from openpyxl.styles import PatternFill, Font, Alignment
 
 ########################################################################
 ### C2C ASSESSMENT EXCEL TEMPLATE
@@ -47,6 +47,15 @@ C2C_ASSESSMENT_TEMPLATE_PATH = os.path.join(
 ### Conditional formatting is re-applied fresh over this many rows on every
 ### save (cheap, unlike formulas) so it always covers the actual data.
 CONDITIONAL_FORMATTING_ROW_HEADROOM = 200000
+### Excel itself (not this script) starts struggling with very large sheets of
+### plain data too, at large enough sizes - if "detailed_overview" would need
+### row_count * column_count cells at or above this, save_c2c_assessment_output()
+### splits the output into a summary file (overview/percentage_assessed/
+### risk_assessed, always computed from the FULL data regardless of the split)
+### plus one detailed_overview file per product - and, if even a single
+### product's data is still too big, further batched by scenario within
+### that product.
+DETAILED_OVERVIEW_CELL_CAP = 200000
 ########################################################################
 
 ### Adjust cols names if the template changes
@@ -757,8 +766,8 @@ def build_c2c_assessment_df(scenarios_df, db_path):
 
     cas_list = clean_cas_values(c2c_df["CAS"].tolist())
     hazards_df, missing_cas_df = extract_colour_assessment_C2C(cas_list, db_path)
-    if not missing_cas_df.empty:
-        print("CAS missing from COLOUR_ASSESSMENT_C2C:", missing_cas_df)
+    # missing_cas_df is no longer printed here - it's written into the overview
+    # sheet's "Flagged issues:" column instead, see build_overview_df()
 
     c2c_df = c2c_df.merge(hazards_df, on="CAS", how="left")
 
@@ -778,7 +787,7 @@ def build_c2c_assessment_df(scenarios_df, db_path):
             rename_map[col] = col.replace("_", " ")
     c2c_df = c2c_df.rename(columns=rename_map)
 
-    return c2c_df
+    return c2c_df, missing_cas_df
 
 ########################################################################
 ### STATIC (pandas-computed) replacements for the template's Excel formulas
@@ -847,6 +856,7 @@ COL_MIN_HOM = "Minimal % of material in homogenous material"
 COL_MAX_HOM = "Maximal % of material in homogenous material"
 COL_MIN_PCT_HOMMAT_IN_PROD = min_percent_in_product
 COL_MAX_PCT_HOMMAT_IN_PROD = max_percent_in_product
+COL_FINAL_MATERIAL_MAP = "Final Material Map"
 
 
 def classify_colour(value):
@@ -909,7 +919,50 @@ def _worst_colour_by_group(active_df, group_cols, hazard_col, group_index, with_
     return colours, scenario_lists
 
 
-def build_overview_df(detailed_df):
+PCT_ASSESSED_FLAG_OK = "OK"
+
+
+def _build_flagged_issues_by_product(active_df, products_index, missing_cas_df):
+    """
+    Per Product, flag two known data-quality issues that would otherwise silently
+    distort the % assessed calculation:
+    1. Some active material has no % composition (NaN in its min/max contribution
+       columns) - pandas' sum(skipna=True) then quietly drops it instead of counting
+       it, making % assessed look better than it actually is.
+    2. Some active material's CAS was not found in COLOUR_ASSESSMENT_C2C (missing_cas_df).
+    Returns two lists (same order as products_index): the % assessed flag text
+    (naming each affected material as "CAS (Final Material Map)", or "OK" if
+    none), and the missing-CAS list text (or "").
+    """
+    composition_cols = [COL_MIN_PROD, COL_MAX_PROD, COL_MIN_HOM, COL_MAX_HOM]
+    composition_missing = active_df[composition_cols].isna().any(axis=1)
+    missing_material_cols = [COL_PRODUCT, COL_CAS, COL_FINAL_MATERIAL_MAP]
+    missing_materials_df = active_df.loc[composition_missing, missing_material_cols].drop_duplicates()
+    missing_materials_df["_label"] = missing_materials_df[COL_CAS] + " (" + missing_materials_df[COL_FINAL_MATERIAL_MAP] + ")"
+    missing_materials_by_product = missing_materials_df.groupby(COL_PRODUCT, sort=False)["_label"].agg(list)
+
+    missing_cas_set = set(missing_cas_df["CAS"]) if missing_cas_df is not None and not missing_cas_df.empty else set()
+    cas_by_product = (
+        active_df.groupby(COL_PRODUCT, sort=False)[COL_CAS]
+        .agg(lambda s: sorted(set(s) & missing_cas_set))
+    )
+
+    pct_flags = []
+    cas_flags = []
+    for prod in products_index:
+        materials_here = missing_materials_by_product.get(prod, [])
+        if materials_here:
+            pct_flags.append(
+                f"Missing % composition for: {'; '.join(materials_here)} - this could influence the % assessed calculation."
+            )
+        else:
+            pct_flags.append(PCT_ASSESSED_FLAG_OK)
+        missing_here = cas_by_product.get(prod, [])
+        cas_flags.append(", ".join(missing_here))
+    return pct_flags, cas_flags
+
+
+def build_overview_df(detailed_df, missing_cas_df=None):
     active_df = detailed_df[detailed_df[COL_ACTIVE] == True].copy()
 
     # ---- left block: worst % assessed per Product, across all its scenarios ----
@@ -928,7 +981,10 @@ def build_overview_df(detailed_df):
         .agg(_join_unique)
         .reindex(worst_pct.index)
     )
+    pct_flags, cas_flags = _build_flagged_issues_by_product(active_df, worst_pct.index, missing_cas_df)
     left_df = pd.DataFrame({
+        "Flagged for % assessed:": pct_flags,
+        "C2C hazard assessment missing CAS:": cas_flags,
         "Product": worst_pct.index,
         "% assessed": worst_pct.values,
         "Scenario ID": worst_scenarios.values,
@@ -1047,6 +1103,31 @@ def _apply_colour_conditional_formatting(ws, first_col_letter, last_col_letter, 
         ws.conditional_formatting.add(cell_range, FormulaRule(formula=[formula], fill=fill, font=font, stopIfTrue=False))
 
 
+def _style_overview_sheet(ws, last_col, last_data_row):
+    """
+    Uniform column widths (so nothing looks randomly wider/narrower), header row
+    text-wrapped (so long headers don't force a huge column width), data rows NOT
+    wrapped, and the spacer columns (C and G) kept narrow so they read as clean
+    separators instead of swallowing overflow text from the column before them.
+    """
+    UNIFORM_WIDTH = 22
+    SPACER_WIDTH = 3
+    SPACER_COLS = {3, 7}
+
+    for col in range(1, last_col + 1):
+        letter = get_column_letter(col)
+        ws.column_dimensions[letter].width = SPACER_WIDTH if col in SPACER_COLS else UNIFORM_WIDTH
+
+    header_alignment = Alignment(wrap_text=True, vertical="bottom")
+    data_alignment = Alignment(wrap_text=False)
+    ws.row_dimensions[1].height = 45  # give wrapped header text room to show on 2-3 lines
+    for col in range(1, last_col + 1):
+        ws.cell(row=1, column=col).alignment = header_alignment
+    for row in range(2, last_data_row + 1):
+        for col in range(1, last_col + 1):
+            ws.cell(row=row, column=col).alignment = data_alignment
+
+
 def _apply_colour_conditional_formatting_cols(ws, col_letters, last_row):
     """Non-contiguous variant, one column at a time - use for sheets like "overview" where hazard-colour
     columns are interleaved with plain-text "Scenario ID_x" columns (a SEARCH("red",...) sweep across a
@@ -1058,13 +1139,26 @@ def _apply_colour_conditional_formatting_cols(ws, col_letters, last_row):
             ws.conditional_formatting.add(f"{col}2:{col}{last_row}", FormulaRule(formula=[formula], fill=fill, font=font, stopIfTrue=False))
 
 
-def save_c2c_assessment_workbook_static(c2c_df, output_path, template_path=C2C_ASSESSMENT_TEMPLATE_PATH):
+def save_c2c_assessment_workbook_static(
+    c2c_df, missing_cas_df, output_path, template_path=C2C_ASSESSMENT_TEMPLATE_PATH, write_detailed=True
+):
     """
     Copy templates/C2C_assessment_template.xlsx to output_path, but instead of
     generating Excel formulas for "overview"/"percentage_assessed"/
     "risk_assessed", compute their values in pandas here and write them as
     plain data - same sheets, same headers, same colour highlighting, no
     Excel-side calculation at all, so no formula-driven row cap is needed.
+    Two extra columns are inserted at the front of the "overview" sheet's
+    left block (before "Product", with a spacer column after them):
+    "Flagged for % assessed:" (red text if some material is missing its %
+    composition, else "OK") and "C2C hazard assessment missing CAS:" (the
+    CAS numbers not found in the DB, per product).
+
+    overview/percentage_assessed/risk_assessed are always computed from the
+    FULL c2c_df, regardless of write_detailed. Pass write_detailed=False for
+    a "summary only" file - the "detailed_overview" sheet/tab is then
+    dropped from this file entirely (its data lives in the separate
+    detailed_overview file(s) - see save_c2c_assessment_output()).
     """
     if not os.path.exists(template_path):
         raise FileNotFoundError(
@@ -1087,19 +1181,43 @@ def save_c2c_assessment_workbook_static(c2c_df, output_path, template_path=C2C_A
             "exact column names - update them (and/or the template) together."
         )
 
-    _clear_sheet_rows(ws_detail)
-    _write_df_to_sheet_by_header(ws_detail, c2c_df)
+    if write_detailed:
+        _clear_sheet_rows(ws_detail)
+        _write_df_to_sheet_by_header(ws_detail, c2c_df)
+    else:
+        del wb["detailed_overview"]
+        ws_detail = None
 
-    overview_left, overview_right = build_overview_df(c2c_df)
+    # insert 3 new leading columns in "overview": the 2 flag columns + a spacer before
+    # "Product" (shifts everything else in that sheet right by 3 - only this in-memory
+    # copy is touched, not the shared template file on disk)
+    ws_overview = wb["overview"]
+    ws_overview.insert_cols(1, amount=3)
+    bold = Font(bold=True)
+    header_cell_pct = ws_overview.cell(row=1, column=1, value="Flagged for % assessed:")
+    header_cell_pct.font = bold
+    header_cell_cas = ws_overview.cell(row=1, column=2, value="C2C hazard assessment missing CAS:")
+    header_cell_cas.font = bold
+    # column 3 stays blank - the spacer before "Product"
+
+    overview_left, overview_right = build_overview_df(c2c_df, missing_cas_df)
     percentage_left, percentage_right = build_percentage_assessed_df(c2c_df)
     risk_df = build_risk_assessed_df(c2c_df)
 
-    # "overview": left block = cols A-C (1-3), right block = cols E-AV (5-48) - both reuse
-    # header text like "Product"/"Scenario ID", so each write must stay within its own range
-    ws_overview = wb["overview"]
+    # "overview": left block = cols A-G (1-7, incl. the 2 new flag cols, the new spacer,
+    # Product/% assessed/Scenario ID, and the original spacer), right block = cols H-AY
+    # (8-51) - both reuse header text like "Product"/"Scenario ID", so each write must
+    # stay within its own range
     _clear_sheet_rows(ws_overview)
-    _write_df_to_sheet_by_header(ws_overview, overview_left, start_col=1, end_col=3)
-    _write_df_to_sheet_by_header(ws_overview, overview_right, start_col=5, end_col=48)
+    _write_df_to_sheet_by_header(ws_overview, overview_left, start_col=1, end_col=7)
+    _write_df_to_sheet_by_header(ws_overview, overview_right, start_col=8, end_col=51)
+
+    # red text for the "Flagged for % assessed:" column wherever it isn't "OK"
+    red_font = Font(color="FF0000")
+    for row_offset in range(2, 2 + len(overview_left)):
+        cell = ws_overview.cell(row=row_offset, column=1)
+        if cell.value and cell.value != PCT_ASSESSED_FLAG_OK:
+            cell.font = red_font
 
     # "percentage_assessed": left block = cols A-C (1-3), right block = cols E-H (5-8) - same
     # header-reuse issue ("Product", "Scenario ID", "% assessed" appear in both blocks)
@@ -1112,16 +1230,149 @@ def save_c2c_assessment_workbook_static(c2c_df, output_path, template_path=C2C_A
     _clear_sheet_rows(ws_risk)
     _write_df_to_sheet_by_header(ws_risk, risk_df)
 
-    n_rows = max(len(c2c_df), len(overview_right), len(risk_df), 1)
+    n_rows = max(len(overview_right), len(risk_df), 1)
     last_row = n_rows + 1 + 100
-    _apply_colour_conditional_formatting(ws_detail, "N", "AH", last_row)
-    # overview's hazard-value columns (G, I, K, ... AU) are interleaved with "Scenario ID_x" text
-    # columns (H, J, L, ...) - use the column-list variant so those never get swept in
-    overview_hazard_cols = [get_column_letter(c) for c in range(7, 48, 2)]  # G, I, K, ..., AU
-    _apply_colour_conditional_formatting_cols(wb["overview"], overview_hazard_cols, last_row)
+    if write_detailed:
+        _apply_colour_conditional_formatting(ws_detail, "N", "AH", len(c2c_df) + 1 + 100)
+    # overview's hazard-value columns (now J, L, N, ... AX after the 3-column insert) are
+    # interleaved with "Scenario ID_x" text columns (K, M, O, ...) - use the column-list
+    # variant so those never get swept in
+    overview_hazard_cols = [get_column_letter(c) for c in range(10, 51, 2)]  # J, L, N, ..., AX
+    _apply_colour_conditional_formatting_cols(ws_overview, overview_hazard_cols, last_row)
     _apply_colour_conditional_formatting(wb["risk_assessed"], "F", "Z", last_row)
 
+    overview_last_data_row = max(len(overview_left), len(overview_right), 1) + 1
+    _style_overview_sheet(ws_overview, last_col=51, last_data_row=overview_last_data_row)
+
     wb.save(output_path)
+
+
+def save_detailed_overview_only(detail_df, output_path, template_path=C2C_ASSESSMENT_TEMPLATE_PATH):
+    """
+    Write just the "detailed_overview" sheet (data + colour conditional formatting) for a
+    subset of the full data - the "overview"/"percentage_assessed"/"risk_assessed" sheets
+    are dropped entirely from this file, since they live in the separate summary file that
+    save_c2c_assessment_output() always builds from the FULL (unsplit) data.
+    """
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(
+            f"C2C assessment template not found at: {template_path}\n"
+            "Check C2C_ASSESSMENT_TEMPLATE_PATH at the top of this file."
+        )
+
+    shutil.copy(template_path, output_path)
+    wb = openpyxl.load_workbook(output_path)
+
+    for sheet_name in ("overview", "percentage_assessed", "risk_assessed"):
+        del wb[sheet_name]
+
+    ws_detail = wb["detailed_overview"]
+    _clear_sheet_rows(ws_detail)
+    _write_df_to_sheet_by_header(ws_detail, detail_df)
+
+    last_row = len(detail_df) + 1 + 100
+    _apply_colour_conditional_formatting(ws_detail, "N", "AH", last_row)
+
+    wb.save(output_path)
+
+
+def _sanitize_filename_part(text):
+    return re.sub(r'[\\/*?:"<>|]', "_", str(text)).strip() or "unnamed"
+
+
+def _split_scenarios_into_batches(df_p, num_cols, cell_cap):
+    """
+    Split one product's rows into consecutive scenario batches, each staying under
+    cell_cap cells where possible. Returns [(scenario_ids, start_idx, end_idx), ...] with
+    1-based start_idx/end_idx (this product's own scenario numbering, for filenames like
+    "..._scenarios_1-100"). A single scenario that alone exceeds the cap still gets its own
+    (oversized) batch - a scenario's rows are never split apart.
+    """
+    scenario_order = df_p[COL_SCENARIO_ID].drop_duplicates().tolist()
+    counts = df_p[COL_SCENARIO_ID].value_counts()
+    max_rows = max(cell_cap // num_cols, 1)
+
+    batches = []
+    current_scenarios, current_rows, start_idx = [], 0, 1
+    for i, sid in enumerate(scenario_order, start=1):
+        rows = int(counts[sid])
+        if current_scenarios and current_rows + rows > max_rows:
+            batches.append((current_scenarios, start_idx, i - 1))
+            current_scenarios, current_rows, start_idx = [], 0, i
+        current_scenarios.append(sid)
+        current_rows += rows
+    if current_scenarios:
+        batches.append((current_scenarios, start_idx, len(scenario_order)))
+    return batches
+
+
+def save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, date_str, template_path=C2C_ASSESSMENT_TEMPLATE_PATH):
+    """
+    Save the C2C assessment:
+    - "C2C_assessment_<file>_<date>.xlsx", directly in saving_dir: ALWAYS just
+      overview/percentage_assessed/risk_assessed (computed from the FULL data) -
+      detailed_overview is never in this file.
+    - detailed_overview, always in its own file(s), inside a new subfolder
+      "detailed_assessment_<file>_<date>" under saving_dir:
+        - fits under DETAILED_OVERVIEW_CELL_CAP (row_count * column_count cells) as a
+          single file: "C2C_assessment_detailed_overview_<file>_<date>.xlsx" (all products
+          together).
+        - otherwise: one "C2C_assessment_detailed_overview_<product>_scenarios_<start>-<end>_<file>_<date>.xlsx"
+          per product (further split into multiple scenario-range batches if even a single
+          product's own data is still too big for one file).
+    Returns the list of saved file paths.
+    """
+    file_stem = os.path.splitext(file_name)[0]
+    num_cols = len(c2c_df.columns)
+    saved_paths = []
+
+    # ---- summary file: always just the 3 summary sheets, always from the FULL data ----
+    summary_path = os.path.join(saving_dir, f"C2C_assessment_{file_stem}_{date_str}.xlsx")
+    save_c2c_assessment_workbook_static(c2c_df, missing_cas_df, summary_path, template_path=template_path, write_detailed=False)
+    saved_paths.append(summary_path)
+
+    # ---- detailed_overview: always a separate file (or files), in its own subfolder ----
+    detail_dir = os.path.join(saving_dir, f"detailed_assessment_{file_stem}_{date_str}")
+    os.makedirs(detail_dir, exist_ok=True)
+
+    total_cells = len(c2c_df) * num_cols
+    if total_cells < DETAILED_OVERVIEW_CELL_CAP:
+        detail_path = os.path.join(detail_dir, f"C2C_assessment_detailed_overview_{file_stem}_{date_str}.xlsx")
+        save_detailed_overview_only(c2c_df, detail_path, template_path=template_path)
+        saved_paths.append(detail_path)
+        return saved_paths
+
+    print(
+        f"detailed_overview would need {total_cells} cells ({len(c2c_df)} rows x {num_cols} cols), "
+        f"at or above the {DETAILED_OVERVIEW_CELL_CAP} cap - splitting it into one file per product "
+        f"(and, for any product still too big on its own, further into scenario-range batches), "
+        f"saved under: {detail_dir}"
+    )
+
+    for prod, df_p in c2c_df.groupby(COL_PRODUCT, sort=False):
+        prod_label = _sanitize_filename_part(prod)
+        prod_cells = len(df_p) * num_cols
+
+        if prod_cells < DETAILED_OVERVIEW_CELL_CAP:
+            n_scenarios = df_p[COL_SCENARIO_ID].nunique()
+            out_path = os.path.join(
+                detail_dir,
+                f"C2C_assessment_detailed_overview_{prod_label}_scenarios_1-{n_scenarios}_{file_stem}_{date_str}.xlsx",
+            )
+            save_detailed_overview_only(df_p, out_path, template_path=template_path)
+            saved_paths.append(out_path)
+            continue
+
+        for scenario_ids, start_idx, end_idx in _split_scenarios_into_batches(df_p, num_cols, DETAILED_OVERVIEW_CELL_CAP):
+            df_batch = df_p[df_p[COL_SCENARIO_ID].isin(scenario_ids)]
+            out_path = os.path.join(
+                detail_dir,
+                f"C2C_assessment_detailed_overview_{prod_label}_scenarios_{start_idx}-{end_idx}_{file_stem}_{date_str}.xlsx",
+            )
+            save_detailed_overview_only(df_batch, out_path, template_path=template_path)
+            saved_paths.append(out_path)
+
+    return saved_paths
 
 
 #################################################################
@@ -1165,13 +1416,13 @@ def run_quick_c2c_assessment_static():
     print("--------------------------------------------------------------")
 
     print("Pulling C2C colour assessment hazards from the DB and building the C2C assessment excel...")
-    c2c_assessment_all_scenarios_df = build_c2c_assessment_df(all_scenarios_df, db_path)
+    c2c_assessment_all_scenarios_df, missing_cas_df = build_c2c_assessment_df(all_scenarios_df, db_path)
     ### Saving:
     now = datetime.now()
     time = now.strftime("%Y%m%d")
-    saving_c2c_assessment_all_scenarios = os.path.join(saving_dir, f"C2C_assessment_all_scenarios_{time}_{file_name}.xlsx")
-    save_c2c_assessment_workbook_static(c2c_assessment_all_scenarios_df, saving_c2c_assessment_all_scenarios)
-    print("Saved C2C assessment for all scenarios to file: ", saving_c2c_assessment_all_scenarios)
+    saved_paths = save_c2c_assessment_output(c2c_assessment_all_scenarios_df, missing_cas_df, saving_dir, file_name, time)
+    for p in saved_paths:
+        print("Saved: ", p)
     print("--------------------------------------------------------------")
     print("Calculations finished. Have a nice day!")
 
