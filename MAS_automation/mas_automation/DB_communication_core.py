@@ -27,8 +27,13 @@ def _default_log(message):
 log_callback = _default_log
 
 
-def _log(message):
-    log_callback(str(message))
+def _log(*args):
+    # accepts multiple args like print() does, so print(...)-style calls throughout this
+    # file can route through here without needing to be rewritten one by one - this used
+    # to only accept a single message and many nested helpers (in extraction_info_excels
+    # and friends) used plain print(), which is invisible in the desktop GUI (only
+    # log_callback is wired to the on-screen log panel).
+    log_callback(" ".join(str(a) for a in args))
 
 
 def strip_outer_quotes(s: str) -> str:
@@ -210,7 +215,7 @@ def check_json(CASall, API_key, save_json_dirr):
             "payload": cas_chunk
         }
         try:
-            response = requests.post(start_url, headers=headers, json=data)
+            response = requests.post(start_url, headers=headers, json=data, timeout=30)
             if response.status_code == 200:
                 job_id = response.json().get("id")
                 jobs.append({"id": job_id, "index": idx + 1, "done": False, "output": None})
@@ -220,14 +225,22 @@ def check_json(CASall, API_key, save_json_dirr):
         except Exception as e:
             _log(f"Chunk {idx + 1}: Exception during job submission: {str(e)}")
 
-    # Step 2: Monitor all jobs in one loop
+    # Step 2: Monitor all jobs in one loop. Capped at 30 minutes total so a job the API
+    # never marks done/errored can't hang the whole screening run forever - any job
+    # still unfinished after the cap is treated as failed for this run (no output).
+    max_polls = 180  # 180 * 10s sleep = 30 minutes
+    polls = 0
     while not all(job["done"] for job in jobs):
+        polls += 1
+        if polls > max_polls:
+            _log(":red[Timed out waiting for the CnL API after 30 minutes - continuing with whatever finished.]")
+            break
         time.sleep(10)
         for job in jobs:
             if job["done"]:
                 continue
             try:
-                status_response = requests.get(f"{status_url}/{job['id']}", headers=headers)
+                status_response = requests.get(f"{status_url}/{job['id']}", headers=headers, timeout=30)
                 if status_response.status_code == 200:
                     status_data = status_response.json()
                     job_status = status_data.get("status")
@@ -465,28 +478,31 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
         #                 sqlinfo["type_classification"] = "Self-classification"
         #             sqlinfo["hazards"] = entry.get("hazards")["hazardClasses"]
         #
-                # Check if CAS already exists
-                cursor.execute("SELECT 1 FROM ECHACHEM_CL WHERE cas = ?", (sqlinfo["cas"],))
+                # Check if CAS already exists. Keyed on sqlinfo["code"] (the target CAS we're
+                # actually processing), NOT sqlinfo["cas"] (the CAS ECHA reported back, which
+                # stays the "-" placeholder for every CAS not found on C&L - keying on that
+                # made every not-found CAS collide with the first one ever inserted).
+                cursor.execute("SELECT 1 FROM ECHACHEM_CL WHERE code = ?", (sqlinfo["code"],))
                 exists = cursor.fetchone()
                 if exists:
-                    _log(f"CAS {sqlinfo['cas']} already in database")
-                    cursor.execute("SELECT 1 FROM ECHACHEM_CL WHERE cas = ? AND hazards = ?", (sqlinfo["cas"],sqlinfo["hazards"]))
+                    _log(f"CAS {sqlinfo['code']} already in database")
+                    cursor.execute("SELECT 1 FROM ECHACHEM_CL WHERE code = ? AND hazards = ?", (sqlinfo["code"],sqlinfo["hazards"]))
                     same_hazard = cursor.fetchone()
                     if same_hazard:
-                        _log(f"Hazards for {sqlinfo['cas']} are the same as for the last update. NO ACTION NEEDED.")
+                        _log(f"Hazards for {sqlinfo['code']} are the same as for the last update. NO ACTION NEEDED.")
                     else:
-                        _log(f"Inserting CAS {sqlinfo['cas']}...")
+                        _log(f"Inserting CAS {sqlinfo['code']}...")
                         cursor.execute("""
                             UPDATE ECHACHEM_CL
                             SET hazards = ?, date_checked = ?
-                            WHERE cas = ?
+                            WHERE code = ?
                         """, (
                             sqlinfo["hazards"],
                             today,
-                            sqlinfo["cas"]
+                            sqlinfo["code"]
                         ))
                         connection.commit()
-                        _log(f"Hazards for {sqlinfo['cas']} are DIFFERENT as for the last update. INFO IN TABLE CnL UPDATED. ACTION REQUIRED.")
+                        _log(f"Hazards for {sqlinfo['code']} are DIFFERENT as for the last update. INFO IN TABLE CnL UPDATED. ACTION REQUIRED.")
 
                         ### Needed for the next step to gather info and update
                         cursor.execute("SELECT hazards FROM ECHACHEM_CL WHERE code = ?",
@@ -495,11 +511,11 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
                         row = cursor.fetchone()
                         hazards_list = row[0].split(",") if row and row[0] else []
                         cas_hazards[target_cas] = hazards_list
-                        _log(hazards_list)
+                        _log(f"Hazards: {', '.join(hazards_list) if hazards_list else '(none)'}")
 
 
                 else:
-                    _log(f"CAS not in CnL database: {sqlinfo['cas']}")
+                    _log(f"CAS not in CnL database: {sqlinfo['code']}")
                     cursor.execute(
                         "SELECT 1 FROM C2C_DATABASE WHERE ID = ?",
                         (sqlinfo["code"],)
@@ -510,9 +526,9 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
                             "INSERT INTO C2C_DATABASE (ID) VALUES (?)",
                             (sqlinfo["code"],)
                         )
-                        _log(f"CAS was not in the main C2C database. CAS added to the main C2C database: {sqlinfo['cas']}")
+                        _log(f"CAS was not in the main C2C database. CAS added to the main C2C database: {sqlinfo['code']}")
                     else:
-                        _log(f"CAS already exists in the main C2C database: {sqlinfo['cas']}")
+                        _log(f"CAS already exists in the main C2C database: {sqlinfo['code']}")
 
                     cursor.execute("""
                         INSERT INTO ECHACHEM_CL (code, on_cl, cas, ec, name_echachem, type_classification, hazards, date_checked)
@@ -528,7 +544,7 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
                         today
                     ))
                     connection.commit()
-                    _log(f"Information inserted to CnL database: {sqlinfo['cas']}")
+                    _log(f"Information inserted to CnL database: {sqlinfo['code']}")
                     ### Needed for the next step to gather info and update
                     cursor.execute("SELECT hazards FROM ECHACHEM_CL WHERE code = ?",
                                                  (sqlinfo["code"],))
@@ -536,12 +552,18 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
                     row = cursor.fetchone()
                     hazards_list = row[0].split(",") if row and row[0] else []
                     cas_hazards[target_cas] = hazards_list
-                    _log(hazards_list)
+                    _log(f"Hazards: {', '.join(hazards_list) if hazards_list else '(none)'}")
 
 
         _log(f"SQL checked, in case hazards were changed, they are here: {cas_hazards}")
         return cas_hazards, cas_with_no_json
     #
+    except Exception as e:
+        # was a bare try/finally with no except - any error not already handled inside
+        # the per-CAS loop above would propagate uncaught and abort the whole batch
+        # instead of returning whatever was successfully processed so far.
+        _log(f":red[Error checking CnL info: {e}]")
+        return cas_hazards, cas_with_no_json
     finally:
         if 'connection' in locals() and connection:
             connection.commit()
@@ -666,6 +688,11 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
 
         return excel_files_that_need_updating, CAS_older_than_3_years
 
+    except Exception as e:
+        # was a bare try/finally with no except - any error not already handled inside
+        # the per-file loop above would propagate uncaught and abort the whole run.
+        _log(f":red[Error checking DB freshness: {e}]")
+        return excel_files_that_need_updating, CAS_older_than_3_years
     finally:
         if 'connection' in locals() and connection:
             connection.commit()
@@ -1463,7 +1490,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 break
 
         if target_row is None:
-            print("Target row not found")
+            _log("Target row not found")
             return
 
         # --- Optionally find the column index for "Resource" ---
@@ -1550,7 +1577,7 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
                 )
 
         if not extracted_data:
-            print("Target extracted not found")
+            _log("Target extracted not found")
             return
 
         # --- 3) Ensure table/columns exist ---
@@ -2125,8 +2152,11 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
 
         connection.commit()
         _log("SQL updated")
-    except sqlite3.Error as e:
-        _log(str("SQLite error") + " " + str(e) + " " + str(inv_number))
+    except Exception as e:
+        # was `except sqlite3.Error` only - any other error (e.g. an unexpected/merged
+        # cell layout in a hand-edited CPS file) would propagate uncaught and abort the
+        # rest of this batch of CAS_needing_DB_update, not just the current one.
+        _log(f":red[Error updating {inv_number}: {e}]")
 
     finally:
         if 'connection' in locals() and connection:
@@ -2239,12 +2269,12 @@ def save_DB_to_excel(db_path, DB_excel_saving_path):
     except sqlite3.Error as e:
         # Catches SQLite-specific errors
         _log(str("SQLite error:") + " " + str(e))
-        traceback.print_exc()  # prints the full traceback
+        _log(traceback.format_exc())  # was traceback.print_exc() - stdout only, invisible in the GUI
 
     except Exception as e:
         # Catches other Python errors
         _log(str("General error:") + " " + str(e))
-        traceback.print_exc()
+        _log(traceback.format_exc())
 
     finally:
         # Always close connection if it was created
@@ -2275,7 +2305,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
             cursor.execute(query, (lookup_value,))
             results = cursor.fetchall()
             if not results:
-                print(f"No results found for {lookup_column} = {lookup_value}")
+                _log(f"No results found for {lookup_column} = {lookup_value}")
                 return
 
             # Find the label in the worksheet
@@ -2303,12 +2333,12 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                                 # Write the value in the first empty cell found
                                 ws_template.cell(row=target_row, column=col).value = result[0]
 
-                                print(
+                                _log(
                                     f"Inserted '{result[0]}' into cell {ws_template.cell(row=target_row, column=col).coordinate}")
 
                         return
 
-            print(f"Label '{label_excel}' not found in worksheet.")
+            _log(f"Label '{label_excel}' not found in worksheet.")
         except sqlite3.Error as e:
             _log(f"SQLite error: {e}")
 
@@ -2351,7 +2381,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                     matching_cols.append(candidate)
 
             if not matching_cols:
-                print(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
+                _log(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
                 return
 
             # 3) Resource column name in SQL: resource-<sanitized label_excel>
@@ -2382,7 +2412,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
             cursor.execute(query, (lookup_value,))
             row = cursor.fetchone()
             if not row:
-                print(f"No results found for {lookup_column} = {lookup_value}")
+                _log(f"No results found for {lookup_column} = {lookup_value}")
                 return
 
             # Split row into value columns and (optional) resource
@@ -2402,7 +2432,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                         for val in value_cols:
                             if val is not None and val != "":
                                 ws_template.cell(row=start_row, column=current_col).value = val
-                                print(
+                                _log(
                                     f"Inserted '{val}' into cell "
                                     f"{ws_template.cell(row=start_row, column=current_col).coordinate}"
                                 )
@@ -2425,16 +2455,16 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 
                             if resource_col_idx is not None:
                                 ws_template.cell(row=start_row, column=resource_col_idx).value = resource_val
-                                print(
+                                _log(
                                     f"Inserted resource '{resource_val}' into cell "
                                     f"{ws_template.cell(row=start_row, column=resource_col_idx).coordinate}"
                                 )
                             else:
-                                print("Could not find 'Resource' column in Excel to write resource value.")
+                                _log("Could not find 'Resource' column in Excel to write resource value.")
 
                         return  # done after first matching label
 
-            print(f"Label '{label_excel}' not found in worksheet.")
+            _log(f"Label '{label_excel}' not found in worksheet.")
 
         except sqlite3.Error as e:
             _log(f"SQLite error: {e}")
@@ -2458,7 +2488,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 
             # If nothing found → return empty DataFrame (still safe)
             if not rows:
-                print(f"No results found for {lookup_column} = {lookup_value}")
+                _log(f"No results found for {lookup_column} = {lookup_value}")
                 return pd.DataFrame()
 
             # Extract column names automatically from cursor.description
@@ -2496,7 +2526,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
         """
 
         if not values_list:
-            print("Value list is empty — nothing to write.")
+            _log("Value list is empty — nothing to write.")
             return
 
         # Normalize the target label once
@@ -2513,7 +2543,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                 break
 
         if not label_cell:
-            print(f"Exact label '{label_excel}' not found.")
+            _log(f"Exact label '{label_excel}' not found.")
             return
 
         start_row = label_cell.row
@@ -2535,7 +2565,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 
             ws_template.cell(row=current_row, column=target_col).value = values_list[value_index]
 
-            print(
+            _log(
                 f"Inserted '{values_list[value_index]}' into "
                 f"{ws_template.cell(row=current_row, column=target_col).coordinate}"
             )
@@ -2544,7 +2574,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
             current_row += 1
 
         if value_index < len(values_list):
-            print(f"Warning: {len(values_list) - value_index} values not written — no more exact matching label rows.")
+            _log(f"Warning: {len(values_list) - value_index} values not written — no more exact matching label rows.")
 
     def refdb_to_excel_source_after_two_targets(
         maindb,
@@ -2592,7 +2622,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                     matching_cols.append(cand)
 
             if not matching_cols:
-                print(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
+                _log(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
                 return
 
             # 3) Resource column in SQL: resource-<sanitized second_label_excel>
@@ -2622,7 +2652,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
             cursor.execute(query, (lookup_value,))
             row = cursor.fetchone()
             if not row:
-                print(f"No results found for {lookup_column} = {lookup_value}")
+                _log(f"No results found for {lookup_column} = {lookup_value}")
                 return
 
             num_val_cols = len(matching_cols)
@@ -2676,7 +2706,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                                 continue
 
                             cell.value = val
-                            print(
+                            _log(
                                 f"Inserted '{val}' into cell {cell.coordinate}"
                             )
                             current_col += 1
@@ -2698,16 +2728,16 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 
                         if resource_col_idx is not None:
                             ws_template.cell(row=target_row, column=resource_col_idx).value = resource_val
-                            print(
+                            _log(
                                 f"Inserted resource '{resource_val}' into cell "
                                 f"{ws_template.cell(row=target_row, column=resource_col_idx).coordinate}"
                             )
                         else:
-                            print("Could not find 'Resource' column in Excel to write resource value.")
+                            _log("Could not find 'Resource' column in Excel to write resource value.")
                     break
 
             if not row_found:
-                print(
+                _log(
                     f"No row found where both '{first_label_excel}' "
                     f"and '{second_label_excel}' are present as exact matches."
                 )
@@ -2765,7 +2795,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                     matching_cols.append(cand)
 
             if not matching_cols:
-                print(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
+                _log(f"No columns found for base '{column_to_get}' in table '{linked_db}'")
                 return
 
             # 3) Resource column in SQL: resource-<sanitized second_label_excel>
@@ -2795,7 +2825,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
             cursor.execute(query, (lookup_value,))
             row = cursor.fetchone()
             if not row:
-                print(f"No results found for {lookup_column} = {lookup_value}")
+                _log(f"No results found for {lookup_column} = {lookup_value}")
                 return
 
             num_val_cols = len(matching_cols)
@@ -2854,13 +2884,13 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                                     continue
 
                                 cell.value = val
-                                print(
+                                _log(
                                     f"Inserted '{val}' into cell {cell.coordinate}"
                                 )
                                 current_col += 1
                                 break
                     else:
-                        print("Second label is 'No data' → skipping SQL values, but still handling resource if present.")
+                        _log("Second label is 'No data' → skipping SQL values, but still handling resource if present.")
 
                     # 8) Put resource into Excel "Resource" column (header cell == 'Resource')
                     if include_resource and resource_val not in (None, ""):
@@ -2878,16 +2908,16 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 
                         if resource_col_idx is not None:
                             ws_template.cell(row=target_row, column=resource_col_idx).value = resource_val
-                            print(
+                            _log(
                                 f"Inserted resource '{resource_val}' into cell "
                                 f"{ws_template.cell(row=target_row, column=resource_col_idx).coordinate}"
                             )
                         else:
-                            print("Could not find 'Resource' column in Excel to write resource value.")
+                            _log("Could not find 'Resource' column in Excel to write resource value.")
                     break
 
             if not row_found:
-                print(
+                _log(
                     f"No row found where both '{first_label_excel}' "
                     f"and '{second_label_excel}' are present as exact matches."
                 )
@@ -2906,7 +2936,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
         image_path = Path(image_dir) / image_name
 
         if not image_path.exists():
-            print(f"Image not found: {image_path}")
+            _log(f"Image not found: {image_path}")
             return
 
         # Normalize the target label once
@@ -2923,7 +2953,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
                 break
 
         if not label_cell:
-            print(f"Exact label '{label_excel}' not found.")
+            _log(f"Exact label '{label_excel}' not found.")
             return
 
         # Cell directly below the label cell
@@ -2936,7 +2966,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
         img.anchor = anchor_coord
         ws_template.add_image(img)
 
-        print(
+        _log(
             f"Inserted image '{image_name}' at {anchor_coord} "
             f"under label '{label_excel}' in sheet '{ws_template.title}'."
         )
@@ -2951,19 +2981,19 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
             Returns the workbook object.
             """
             if not filepath.lower().endswith(".xlsm"):
-                print(f"ERROR: Expected an .xlsm file, but got: {filepath}")
+                _log(f"ERROR: Expected an .xlsm file, but got: {filepath}")
                 return None
             if os.path.exists(filepath):
                 # Load workbook and preserve macros
                 wb = load_workbook(filepath, keep_vba=True)
-                print(f"Opened existing file: {filepath}")
+                _log(f"Opened existing file: {filepath}")
             else:
                 # Create new workbook and save as xlsm
                 wb = Workbook()
                 wb.save(filepath)
                 wb2 = load_workbook(filepath, keep_vba=True)
                 wb2.save(filepath)
-                print(f"Created new xlsm file: {filepath}")
+                _log(f"Created new xlsm file: {filepath}")
             return wb
 
         def add_new_sheet(filepath, new_sheet_name):
@@ -2985,7 +3015,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
             ws = wb.create_sheet(new_sheet_name, 0)
 
             wb.save(filepath)
-            print(f"Added sheet '{new_sheet_name}' to {filepath}")
+            _log(f"Added sheet '{new_sheet_name}' to {filepath}")
 
             return ws
 
@@ -3022,7 +3052,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
             # Save file
             wb.save(filepath)
 
-            print(f"Renamed '{sheet_name}' → '{new_name}' and moved to back.")
+            _log(f"Renamed '{sheet_name}' → '{new_name}' and moved to back.")
 
         def load_wb_any(path):
             """Load xlsx/xlsm, preserving VBA if present."""
@@ -3136,7 +3166,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
 
             # --- Save destination workbook ---
             dest_wb.save(dest_path)
-            print(
+            _log(
                 f"Copied sheet '{src_sheet_name}' from '{src_path}' "
                 f"to '{dest_path}' as '{dest_sheet_name}' "
                 f"(with data validation + CF for column I)."
@@ -3159,13 +3189,13 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
     filepath = f"{folder}/CPS_CAS {CAS}.xlsm"
 
     if not os.path.exists(filepath):
-        print(f"Creating new CAS excel file: {filepath}")
+        _log(f"Creating new CAS excel file: {filepath}")
         template_wb = load_workbook(template_path, read_only=False, keep_vba=True)
         ws_template = template_wb["C2Coverview"]
         template_wb.save(filepath)
 
     else:
-        print(f"CAS excel file: {filepath} already exists")
+        _log(f"CAS excel file: {filepath} already exists")
 
     put_template_into_CPS(filepath, template_path)
 
@@ -3176,7 +3206,7 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
         connection = sqlite3.connect(database)
         cursor = connection.cursor()
 
-        print("Connected to SQLite database at:", db_path)
+        _log(f"Connected to SQLite database at: {database}")
 
         # GENERAL INFO
         #Add general info
@@ -3344,9 +3374,9 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
         # # Lower limit
         # choosing SQL with only Lower limit data
         SCL_DB_names_lower = [s for s in SCL_names if "Lower Limit:" in s]
-        print(SCL_DB_names_lower)
+        _log(SCL_DB_names_lower)
         SCL_EX_names_lower = remove_text_from_string(SCL_DB_names_lower, " - Lower Limit: (%)")
-        print(SCL_EX_names_lower)
+        _log(SCL_EX_names_lower)
         # extracting Lower limit data
         for namesDB, nameExcel in zip(SCL_DB_names_lower, SCL_EX_names_lower):
             refdb_to_excel_source_after_two_targets(maindb="C2C_DATABASE", main_ref="ID", linked_db="SCONCLIM", link_ref="ref",
@@ -3448,8 +3478,13 @@ def extraction_info_excels(database, template_path, CAS, folder, image_dir):
         saving_path = os.path.join(folder,name)
         template_wb.save(saving_path)
 
-    except sqlite3.Error as e:
-        _log(str("SQLite error:") + " " + str(e))
+    except Exception as e:
+        _log(f":red[Error generating CPS excel for {CAS}: {e}]")
+    finally:
+        if 'connection' in locals() and connection:
+            connection.close()
+        if 'template_wb' in locals() and template_wb:
+            template_wb.close()
 def make_cas_report_excel(folder, *, base_name="Export_CAS", CASall=None, found=None, not_found=None, CAS_not_in_DB_but_in_excel=None,  CAS_not_in_DB_and_not_in_excel=None, CAS_older_than_3_years=None, CAS_needing_update=None, cas_with_up_to_date_info=None, cas_hazards=None, cas_with_no_json=None):
     """
     Creates an Excel report from the programme run.
@@ -3705,10 +3740,13 @@ def run_cas_screening(cas_excel_path, db_path, use_cps_folder=False):
                     extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_update)
                     _log(f"DB updated successfully with: {', '.join(CAS_needing_update)}")
                 else:
+                    # was inverted: this fires when CAS_needing_update is empty, so the two
+                    # branches below must be keyed on CAS_older_than_3_years being non-empty
+                    # (warn) vs. empty (everything's fine) - they were swapped before.
                     if CAS_older_than_3_years:
-                        _log("All CAS are up to date with info from Excel.")
-                    else:
                         _log(f":red[Make sure to check {', '.join(CAS_older_than_3_years)} - old]")
+                    else:
+                        _log("All CAS are up to date with info from Excel.")
 
             if CAS_not_in_folder:
                 _log(f":red[Those CAS are in DB but not as Excel files: {', '.join(CAS_not_in_folder)}. Making an Excel file in the folder]")
@@ -3735,7 +3773,8 @@ def run_cas_screening(cas_excel_path, db_path, use_cps_folder=False):
         if cas_hazards_updated:
             _log(f":red[CnL info changed for: {', '.join(cas_hazards_updated)}]")
             for k, v in cas_hazards_list.items():
-                _log(f":red[{k},{v}]")
+                hazards_text = ', '.join(v) if v else '(none)'
+                _log(f":red[{k}: {hazards_text}]")
 
         out_file = make_cas_report_excel(
             folder= folder_for_saving_excel_exports,

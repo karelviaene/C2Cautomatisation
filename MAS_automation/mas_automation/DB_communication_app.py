@@ -25,7 +25,7 @@ import traceback
 from datetime import datetime
 
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import DB_communication_core as core
@@ -173,6 +173,23 @@ class App(tk.Tk):
         # route the core module's log messages to this window (module-level, so
         # only one pipeline should run at a time - enforced below via self._running)
         core.log_callback = self._log_threadsafe
+
+        # worker threads are daemons, so closing the window kills them instantly - if
+        # that happens mid-run it can leave the database mid-transaction (the pipeline
+        # commits several times per CAS, not once atomically). Warn before allowing that.
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self):
+        if self._running:
+            if not messagebox.askyesno(
+                "Run in progress",
+                "A run is still in progress. Closing now may leave the database "
+                "partially updated for the CAS currently being processed.\n\n"
+                "Quit anyway?",
+                icon="warning",
+            ):
+                return
+        self.destroy()
 
     # ---------------------------------------------------------------- log
     def _log(self, message):
