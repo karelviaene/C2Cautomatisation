@@ -482,6 +482,16 @@ def calc_row_contribution(row, tier_level=10):
 
 
     return min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat
+### Whether a row's OWN alternative-group picks (ignoring coupling) match this scenario
+def _row_matches_alternative_choices(row, scenario, tier_level=10):
+    for i in range(1, tier_level + 1):
+        alt_group_col = f"t{i}_alt_group"
+        material_col = col_mat.format(i=i)
+        if pd.notna(row.get(alt_group_col)):
+            chosen = scenario["choices"].get(row[alt_group_col])
+            if chosen is not None and row.get(material_col) != chosen:
+                return False
+    return True
 ### Evaluate each scenario
 def evaluate_row_activity(df, scenario, tier_level=10):
     df = df.copy()
@@ -494,6 +504,24 @@ def evaluate_row_activity(df, scenario, tier_level=10):
         ].copy()
 
     selected_materials = set(scenario["choices"].values())
+    # also treat every FIXED (non-alternative) Tier-i Material as "selected", so a coupling
+    # rule pointed at a plain/base material (not itself an alternative choice) can be
+    # satisfied - it previously never could be, since selected_materials only ever held
+    # alternative-group choices. Restricted to rows that are themselves consistent with
+    # this scenario's alternative choices (ignoring coupling) - otherwise a material that
+    # only exists under a DIFFERENT, unchosen alternative branch could leak in and wrongly
+    # satisfy a coupling check in a scenario where that branch was never picked.
+    if not df.empty:
+        alt_consistent_mask = df.apply(
+            lambda r: _row_matches_alternative_choices(r, scenario, tier_level), axis=1
+        )
+        consistent_df = df[alt_consistent_mask]
+        for i in range(1, tier_level + 1):
+            alt_group_col = f"t{i}_alt_group"
+            material_col = col_mat.format(i=i)
+            if alt_group_col in consistent_df.columns and material_col in consistent_df.columns:
+                fixed_mask = consistent_df[alt_group_col].isna()
+                selected_materials |= set(consistent_df.loc[fixed_mask, material_col].dropna().unique())
 
     active_flags = []
     reasons = []
@@ -664,6 +692,10 @@ def analyse_the_dataset_with_mixture_rules(df, scenarios, df_toxicity_info):
         "GREY": 3,
         "RED": 4,
         "!!! SENS 1 OR 1A PRESENT !!!": 5,
+        # ranked highest so it is never silently dropped from (or lost a tie-break in) the
+        # worst-case-across-scenarios aggregation below - "we don't have enough data to say"
+        # must surface at least as prominently as any colour that WAS computed.
+        NOT_FULL_COMPOSITION_LABEL.upper(): 6,
     }
 
     def clean_colour(value):
@@ -1176,6 +1208,41 @@ def save_percent_assessed(perecentage_assessed_dict, saving_percent_assessed):
         perecentage_assessed_dict["Storing calculations for percentage assessed"].to_excel(writer, sheet_name="percent_assessed_calc_methods", index=False, startrow=0)
 ####################################################################################
 # FUNCTIONS FOR C2C MIXTURE RULES #
+
+### Shown instead of a RED/YELLOW/GREEN/GREY rating whenever a homogeneous material's
+### mixture-rule result can't actually be trusted: an active ingredient's composition
+### (%) is unknown, its CAS/identity is unknown ("not assessed"), or its CAS is known
+### but the specific hazard data that rule needs (LD50/LC50/CLP class, corrosion/
+### irritation rating, sensitization data, aquatic LC50/NOEC/hazard class) is missing.
+### Previously such gaps were either silently dropped from the calculation (understating
+### the mixture's real hazard) or, in the aquatic-toxicity case, silently defaulted to
+### the WORST possible rating - both are wrong; this makes the gap visible instead.
+NOT_FULL_COMPOSITION_LABEL = "Not full comp - no mixture rules applied"
+
+
+def _hom_materials_with_unknown_composition(df_product):
+    """Homogeneous materials with at least one active row of unknown % (NaN) or unknown CAS ('not assessed')."""
+    d = df_product.copy()
+    d["conc_hom_mat"] = d[["min_contribution_hom_mat", "max_contribution_hom_mat"]].max(axis=1)
+    unknown_mask = d["conc_hom_mat"].isna() | (d["CAS"] == "not assessed")
+    return set(d.loc[unknown_mask, "Homogenous Material"].unique())
+
+
+def _apply_not_full_composition_label(df, incomplete_hom_materials, cols):
+    """Overwrite `cols` with NOT_FULL_COMPOSITION_LABEL for every row whose hom_material is incomplete."""
+    if not incomplete_hom_materials or df.empty:
+        return df
+    mask = df["hom_material"].isin(incomplete_hom_materials)
+    existing_cols = [c for c in cols if c in df.columns]
+    # these columns may currently be numeric (e.g. an ATE value) - cast to object first so
+    # assigning the text label doesn't trip pandas' incompatible-dtype warning/future error
+    for c in existing_cols:
+        if df[c].dtype != object:
+            df[c] = df[c].astype(object)
+    df.loc[mask, existing_cols] = NOT_FULL_COMPOSITION_LABEL
+    return df
+
+
 ### 1. Acute toxicity ###
 ## acute tox
 def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
@@ -1250,7 +1317,6 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
     ate_config = {
         "LD50_oral": {
             "route": "oral",
-            "exclusion_value": 2000,
             "CLP_info": "CLP oral class",
             "tox_1": 0.5,
             "tox_2": 5,
@@ -1260,7 +1326,6 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
         },
         "LD50_dermal": {
             "route": "dermal",
-            "exclusion_value": 2000,
             "CLP_info": "CLP dermal class",
             "tox_1": 5,
             "tox_2": 50,
@@ -1270,7 +1335,6 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
         },
         "LC50_gas": {
             "route": "inhalation gas",
-            "exclusion_value": 20000,
             "CLP_info": "CLP inhalation class",
             "tox_1": 10,
             "tox_2": 100,
@@ -1280,7 +1344,6 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
         },
         "LC50_vapour": {
             "route": "inhalation vapour",
-            "exclusion_value": 20,
             "CLP_info": "CLP inhalation class",
             "tox_1": 0.05,
             "tox_2": 0.5,
@@ -1290,7 +1353,6 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
         },
         "LC50_dust_mist_aerosol": {
             "route": "inhalation dust/mist/aerosol",
-            "exclusion_value": 5,
             "CLP_info": "CLP inhalation class",
             "tox_1": 0.005,
             "tox_2": 0.05,
@@ -1303,6 +1365,45 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
     final_df = pd.DataFrame({"hom_material": hom_materials})
     # Store unknown ATE chemicals here as dicts
     all_unknown_chemicals = []
+    # Homogeneous materials whose acute-toxicity rating can't be trusted: unknown
+    # composition/CAS, or a known-CAS ingredient (at or above the standard 0.1% CLP
+    # de-minimis threshold - the SAME cutoff the ATE math itself uses below, so nothing
+    # exempt from classification consideration gets flagged) missing all the hazard data
+    # relevant to it. Oral and dermal are each required independently, since those are
+    # normally reported for every substance; the three inhalation columns (gas/vapour/
+    # dust-mist-aerosol) are ALTERNATE representations of the same exposure route
+    # depending on the substance's physical form - a real substance is only ever tested
+    # under ONE of them, so a material is only flagged for "inhalation" if NONE of the
+    # requested inhalation endpoints have data, not if any single one of the three is
+    # missing (checking all 5 independently, as an earlier version of this fix did,
+    # flagged almost every real ingredient, since virtually none have all 3 populated).
+    incomplete_hom_materials = _hom_materials_with_unknown_composition(df_product)
+
+    known_row_mask = (
+        (df_calculation["CAS"] != "not assessed")
+        & df_calculation["conc_hom_mat"].notna()
+        & (df_calculation["conc_hom_mat"] >= 0.001)
+    )
+    route_groups = {}
+    for _ld_lc_col in ld_lc_to_assess:
+        if _ld_lc_col not in ate_config:
+            continue
+        _cfg = ate_config[_ld_lc_col]
+        _clp_col = _cfg["CLP_info"]
+        _filled_col = f"_filled_{_ld_lc_col}"
+        df_calculation[_filled_col] = pd.to_numeric(df_calculation[_ld_lc_col], errors="coerce")
+        df_calculation.loc[df_calculation[_filled_col].isna() & df_calculation[_clp_col].astype(str).str.contains("Tox. 1", na=False, regex=False), _filled_col] = _cfg["tox_1"]
+        df_calculation.loc[df_calculation[_filled_col].isna() & df_calculation[_clp_col].astype(str).str.contains("Tox. 2", na=False, regex=False), _filled_col] = _cfg["tox_2"]
+        df_calculation.loc[df_calculation[_filled_col].isna() & df_calculation[_clp_col].astype(str).str.contains("Tox. 3", na=False, regex=False), _filled_col] = _cfg["tox_3"]
+        df_calculation.loc[df_calculation[_filled_col].isna() & df_calculation[_clp_col].astype(str).str.contains("Tox. 4", na=False, regex=False), _filled_col] = _cfg["tox_4"]
+        _route = _cfg["route"]
+        _group_key = "inhalation" if _route.startswith("inhalation") else _route
+        route_groups.setdefault(_group_key, []).append(_filled_col)
+
+    for _group_key, _filled_cols in route_groups.items():
+        group_missing = df_calculation[_filled_cols].isna().all(axis=1) & known_row_mask
+        if group_missing.any():
+            incomplete_hom_materials |= set(df_calculation.loc[group_missing, "Homogenous Material"].unique())
 
     # 3. Calculate ATE for each selected LD50/LC50 endpoint
     for ld_lc_col in ld_lc_to_assess:
@@ -1321,10 +1422,13 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
         # Exclude chemicals below 0.1%
         df_ate = df_ate.loc[df_ate["conc_hom_mat"] >= 0.001].copy()
 
-        # Exclude chemicals below 1% if they are only category 4 /
-        # above the route-specific exclusion value.
+        # Exclude chemicals below 1% if they are CLP Category 4 (C2C YELLOW) rated - Table 11
+        # footnote 13: RED-rated (Cat 1-3) and GREY-rated chemicals count toward the mixture
+        # rating at >=0.1% (already applied above), but Category 4/YELLOW-rated chemicals
+        # only count at >=1%.
         # conc_hom_mat is fraction, so 0.01 = 1%
-        df_ate = df_ate.loc[~((df_ate["conc_hom_mat"] < 0.01) & (df_ate[ld_lc_col] > cfg["exclusion_value"]))].copy()
+        is_category_4 = df_ate[clp_col].astype(str).str.contains("Tox. 4", na=False, regex=False)
+        df_ate = df_ate.loc[~(is_category_4 & (df_ate["conc_hom_mat"] < 0.01))].copy()
 
         # Fill missing LD50/LC50 values based on CLP category
         df_ate.loc[df_ate[ld_lc_col].isna()& df_ate[clp_col].astype(str).str.contains("Tox. 1",na=False,regex=False),ld_lc_col] = cfg["tox_1"]
@@ -1338,8 +1442,14 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
         for hom_material in hom_materials:
             df_hom = df_ate.loc[df_ate["Homogenous Material"] == hom_material].copy()
 
-            # Unknown ATE chemicals above 10%
-            condition_unknown = ((df_hom["conc_hom_mat_percent"] > 10) & df_hom[ld_lc_col].isna() & (df_hom[clp_col] != "Not classified"))
+            # Chemicals with genuinely unknown acute toxicity (no usable LD50/LC50 value even
+            # after the CLP-category fill above, and not "Not classified"). Per CLP section
+            # 2.3.1, when the TOTAL concentration of such unknown-toxicity chemicals exceeds
+            # 10%, the "100" in the ATE formula is corrected down to 100 minus that total.
+            # Previously this only counted a chemical toward the correction if IT ALONE
+            # exceeded 10%, so several smaller unknown-toxicity chemicals that together
+            # exceeded 10% received no correction at all.
+            condition_unknown = (df_hom[ld_lc_col].isna() & (df_hom[clp_col] != "Not classified"))
 
             # Save unknown chemicals with endpoint/route information
             unknown_cols = ["CAS","Homogenous Material","conc_hom_mat","conc_hom_mat_percent",clp_col]
@@ -1357,8 +1467,10 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
 
             sum_unknown_chemicals = df_hom.loc[condition_unknown,"conc_hom_mat_percent"].sum()
 
-            # Adjust the 100 with the sum of unknown chemicals
-            adjusted_100 = 100 - sum_unknown_chemicals
+            # Only correct the "100" once the unknown chemicals' TOTAL concentration is
+            # >10% (per CLP); below that they are simply excluded from the Ci/ATEi sum
+            # (via NaN, already skipped by .sum()) without adjusting the numerator.
+            adjusted_100 = (100 - sum_unknown_chemicals) if sum_unknown_chemicals > 10 else 100
 
             # Calculate ATE
             df_hom["conc_divided_by_LD50"] = (df_hom["conc_hom_mat_percent"] / df_hom[ld_lc_col])
@@ -1429,15 +1541,16 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
         final_df.loc[ final_df[ate_col].between(1000, 2000, inclusive="right"),out_col] = "YELLOW"
         final_df.loc[final_df[ate_col] > 2000, out_col] = "GREEN"
 
-    # Inhalation gases
+    # Inhalation gases (same C2C Table 11 mg/L cutoffs as vapour - not the raw CLP
+    # category-boundary ppmV values 2500/20000 used here previously)
     if "ATE_based_on_LC50_gas" in final_df.columns:
         ate_col = "ATE_based_on_LC50_gas"
         out_col = "Acute toxicity inhalation (gases) C2C"
 
         final_df[out_col] = None
-        final_df.loc[final_df[ate_col] <= 2500, out_col] = "RED"
-        final_df.loc[ final_df[ate_col].between(2500, 20000, inclusive="right"),out_col] = "YELLOW"
-        final_df.loc[final_df[ate_col] > 20000, out_col] = "GREEN"
+        final_df.loc[final_df[ate_col] <= 10, out_col] = "RED"
+        final_df.loc[ final_df[ate_col].between(10, 20, inclusive="right"),out_col] = "YELLOW"
+        final_df.loc[final_df[ate_col] > 20, out_col] = "GREEN"
 
     # Inhalation vapour
     if "ATE_based_on_LC50_vapour" in final_df.columns:
@@ -1485,6 +1598,14 @@ def C2C_acute_toxicity(df_product, df_toxicity_info, ld_lc_to_assess):
 
     # GREEN fourth
     final_df.loc[final_df["C2C acute toxicity"].isna()& final_df[classification_cols].eq("GREEN").any(axis=1),"C2C acute toxicity"] = "GREEN"
+
+    # 6b. Any homogeneous material with unknown composition/CAS or missing hazard data for
+    # a requested route can't get a trustworthy rating - replace whatever was computed
+    # (including a possibly-wrong RED/YELLOW/GREEN/GREY) with an explicit label instead.
+    ate_output_cols = [cfg["ate_col"] for cfg in ate_config.values()]
+    final_df = _apply_not_full_composition_label(
+        final_df, incomplete_hom_materials, classification_cols + ["C2C acute toxicity"] + ate_output_cols
+    )
 
     # 7. Build unknown chemicals DataFrame
 
@@ -1650,7 +1771,12 @@ def resp_corr_rule_c2c(df_product, df_toxicity_info):
         df = df_calculation.loc[df_calculation["Homogenous Material"] == hom_material]
         rating_col = "skin eye respiratory corrosion irritation C2C assessment"
         rank = {"RED": 0, "GREY": 1, "YELLOW": 2, "GREEN": 3}
-        rating = min(df[rating_col], key=lambda x: rank[x])
+        # .get(..., worst_rank) instead of raw rank[x]: a missing/unexpected rating (e.g. NaN
+        # from a CAS not found in the toxicity DB) must never raise and take down every other
+        # homogeneous material's result in this same call - the completeness check in
+        # corr_n_irr_mixture_rule_c2c is what actually decides whether to trust this value.
+        worst_rank = max(rank.values()) + 1
+        rating = min(df[rating_col], key=lambda x: rank.get(x, worst_rank))
         resp_corr_for_each_material.append({
             "hom_material": hom_material,
             f"resp_corr": rating})
@@ -1667,6 +1793,22 @@ def corr_n_irr_mixture_rule_c2c(df_product, df_toxicity_info):
     df_results["C2C Skin, Eye, and Respiratory Irritation"] = (
         df_results[["skin_corr", "eye_corr", "resp_corr"]]
         .apply(lambda row: min(row, key=lambda x: rank.get(x, float("inf"))), axis=1))
+
+    # Any homogeneous material with unknown composition/CAS, or a known-CAS ingredient
+    # missing the corrosion/irritation rating altogether, can't get a trustworthy result.
+    incomplete_hom_materials = _hom_materials_with_unknown_composition(df_product)
+    rating_col = "skin eye respiratory corrosion irritation C2C assessment"
+    df_calc = pd.merge(df_product, df_toxicity_info, on="CAS", how="left")
+    df_calc["conc_hom_mat"] = df_calc[["min_contribution_hom_mat", "max_contribution_hom_mat"]].max(axis=1)
+    missing_rating_mask = (
+        df_calc[rating_col].isna() & (df_calc["CAS"] != "not assessed") & df_calc["conc_hom_mat"].notna()
+    )
+    incomplete_hom_materials |= set(df_calc.loc[missing_rating_mask, "Homogenous Material"].unique())
+
+    df_results = _apply_not_full_composition_label(
+        df_results, incomplete_hom_materials,
+        ["skin_corr", "eye_corr", "resp_corr", "C2C Skin, Eye, and Respiratory Irritation"],
+    )
     return df_results
 
 ### 3. Skin and Respiratory Sensitization ###
@@ -1708,41 +1850,112 @@ def skin_and_resp_sens_c2c(df_product, df_toxicity_info):
     # Step 3: assess per homogenous material
     sensitization_for_each_material = []
     for hom_material in hom_materials:
-        df = df_calculation.loc[df_calculation["Homogenous Material"] == hom_material]
+        df = df_calculation.loc[df_calculation["Homogenous Material"] == hom_material].copy()
         df["sensitization assessment"] = None
-        # Loop over all check columns e.g. "SCL Skin Sens. 1 - check"
-        for col in df.columns:
-            # check SCL for each
-            if col.endswith("- check"):
-                #print(col)
-                # For rows where check is "Yes" and assessment not set yet
-                if col in ["SCL Resp. Sens. 1A - check", "SCL Resp. Sens. 1 - check", "SCL Skin Sens. 1 - check", "SCL Skin Sens. 1A - check"]:
-                    df.loc[(df[col] == "Yes") & df["sensitization assessment"].isna(), "sensitization assessment"] = "!!! Sens 1 or 1A present !!!"
-                elif col in ["SCL Resp. Sens. 1B - check", "SCL Skin Sens. 1B - check"]:
-                    df.loc[(df[col] == "Yes") & df["sensitization assessment"].isna(), "sensitization assessment"] = "RED"
-            # check general conc limits
-            if col in ["skin_sensitisation", "resp_sensitisation"]:
-                # for Sens. 1A and 1
-                df.loc[((df[col] == "Skin Sens. 1: H317 May cause an allergic skin reaction")|(df[col].str.contains("Skin Sens. 1A", case=False, na=False))) & df["sensitization assessment"].isna(), "sensitization assessment"] = "!!! Sens 1 or 1A present !!!"
-                # for Sens. 1B
-                df.loc[((df[col].str.contains("Skin Sens. 1B", case=False, na=False)) & (df["conc_hom_mat"]>0.01)) & df["sensitization assessment"].isna(), "sensitization assessment"] = "RED"
-            # check for C2C single point assessment
-            if col in ["sensitization C2C assessment"]:
-                # assess the colour based on the C2C colour
-                df.loc[(df[col] == "RED") & df["sensitization assessment"].isna(), "sensitization assessment"] = "RED"
-                df.loc[(df[col] == "GREY") & df["sensitization assessment"].isna(), "sensitization assessment"] = "GREY"
-                df.loc[(df[col] == "YELLOW") & df["sensitization assessment"].isna(), "sensitization assessment"] = "YELLOW"
-                df.loc[(df[col] == "GREEN") & df["sensitization assessment"].isna(), "sensitization assessment"] = "GREEN"
+
+        # Pass 1: SCL-based checks first. Per the methodology, an SCL can be LOWER or
+        # HIGHER than the generic %-threshold and always takes precedence when defined -
+        # so any endpoint/chemical with SCL data must be judged ONLY by that comparison;
+        # the generic-threshold checks in Pass 2 skip it entirely (has_scl_* below),
+        # regardless of whether the SCL check itself came out "Yes" or "No".
+        scl_1_1a_cols = [c for c in [
+            "SCL Resp. Sens. 1A - check", "SCL Resp. Sens. 1 - check",
+            "SCL Skin Sens. 1 - check", "SCL Skin Sens. 1A - check",
+        ] if c in df.columns]
+        scl_1b_cols = [c for c in [
+            "SCL Resp. Sens. 1B - check", "SCL Skin Sens. 1B - check",
+        ] if c in df.columns]
+        has_scl_1_1a = df[scl_1_1a_cols].notna().any(axis=1) if scl_1_1a_cols else pd.Series(False, index=df.index)
+        has_scl_1b = df[scl_1b_cols].notna().any(axis=1) if scl_1b_cols else pd.Series(False, index=df.index)
+
+        for col in scl_1_1a_cols:
+            df.loc[(df[col] == "Yes") & df["sensitization assessment"].isna(), "sensitization assessment"] = "!!! Sens 1 or 1A present !!!"
+        for col in scl_1b_cols:
+            df.loc[(df[col] == "Yes") & df["sensitization assessment"].isna(), "sensitization assessment"] = "RED"
+
+        # Pass 2: generic concentration-threshold checks - CLP Table 6/7: Cat 1/1A >= 0.1%,
+        # Cat 1B >= 1.0% (C2C section 3.2.3 uses a flat 1.0% for Resp. Sens. 1B too - no
+        # gas/solid-liquid split for the mixture-rule process). Skin and respiratory each
+        # read their OWN column/text (previously respiratory reused the skin literals and
+        # so could never match), and only apply when no SCL is defined for that endpoint.
+        if "skin_sensitisation" in df.columns:
+            col = "skin_sensitisation"
+            df.loc[
+                (
+                    ((df[col] == "Skin Sens. 1: H317 May cause an allergic skin reaction")
+                     | df[col].str.contains("Skin Sens. 1A", case=False, na=False))
+                    & (df["conc_hom_mat"] >= 0.001)
+                    & ~has_scl_1_1a
+                ) & df["sensitization assessment"].isna(),
+                "sensitization assessment",
+            ] = "!!! Sens 1 or 1A present !!!"
+            df.loc[
+                (
+                    df[col].str.contains("Skin Sens. 1B", case=False, na=False)
+                    & (df["conc_hom_mat"] >= 0.01)
+                    & ~has_scl_1b
+                ) & df["sensitization assessment"].isna(),
+                "sensitization assessment",
+            ] = "RED"
+
+        if "resp_sensitisation" in df.columns:
+            col = "resp_sensitisation"
+            df.loc[
+                (
+                    (df[col].str.contains("Resp. Sens. 1:", case=False, na=False)
+                     | df[col].str.contains("Resp. Sens. 1A", case=False, na=False))
+                    & (df["conc_hom_mat"] >= 0.001)
+                    & ~has_scl_1_1a
+                ) & df["sensitization assessment"].isna(),
+                "sensitization assessment",
+            ] = "!!! Sens 1 or 1A present !!!"
+            df.loc[
+                (
+                    df[col].str.contains("Resp. Sens. 1B", case=False, na=False)
+                    & (df["conc_hom_mat"] >= 0.01)
+                    & ~has_scl_1b
+                ) & df["sensitization assessment"].isna(),
+                "sensitization assessment",
+            ] = "RED"
+
+        # Pass 3: C2C single-point chemical-level assessment passthrough (upstream data;
+        # e.g. "mild sensitization" -> YELLOW per section 5.1.2.4/5.1.2.5 is captured there).
+        if "sensitization C2C assessment" in df.columns:
+            col = "sensitization C2C assessment"
+            df.loc[(df[col] == "RED") & df["sensitization assessment"].isna(), "sensitization assessment"] = "RED"
+            df.loc[(df[col] == "GREY") & df["sensitization assessment"].isna(), "sensitization assessment"] = "GREY"
+            df.loc[(df[col] == "YELLOW") & df["sensitization assessment"].isna(), "sensitization assessment"] = "YELLOW"
+            df.loc[(df[col] == "GREEN") & df["sensitization assessment"].isna(), "sensitization assessment"] = "GREEN"
 
 
         rating_col = "sensitization assessment"
         rank = { "!!! Sens 1 or 1A present !!!": 0 ,"RED": 1, "GREY": 2, "YELLOW": 3, "GREEN": 4}
-        rating = min(df[rating_col], key=lambda x: rank[x])
+        # a row left as None means none of the checks above could classify it - almost
+        # always because its CAS wasn't found in the toxicity DB at all - use .get() with
+        # a worst-rank sentinel so that never crashes; the completeness check below is what
+        # actually decides whether the resulting rating can be trusted.
+        worst_rank = max(rank.values()) + 1
+        row_missing_data = df[rating_col].isna().any()
+        rating = min(df[rating_col], key=lambda x: rank.get(x, worst_rank))
         sensitization_for_each_material.append({
             "hom_material": hom_material,
-            f"C2C Skin and Respiratory Sensitization": rating})
+            "C2C Skin and Respiratory Sensitization": rating,
+            "_missing_sensitization_data": row_missing_data,
+        })
 
-    return pd.DataFrame(sensitization_for_each_material)
+    result_df = pd.DataFrame(sensitization_for_each_material)
+
+    # Any homogeneous material with unknown composition/CAS, or a known-CAS ingredient
+    # for which no sensitization data could be found at all, can't get a trustworthy result.
+    incomplete_hom_materials = _hom_materials_with_unknown_composition(df_product)
+    if "_missing_sensitization_data" in result_df.columns:
+        incomplete_hom_materials |= set(
+            result_df.loc[result_df["_missing_sensitization_data"], "hom_material"]
+        )
+    result_df = _apply_not_full_composition_label(
+        result_df, incomplete_hom_materials, ["C2C Skin and Respiratory Sensitization"]
+    )
+    return result_df.drop(columns=["_missing_sensitization_data"], errors="ignore")
 def skin_sens_clp(df_product, df_toxicity_info):
     df_calculation = pd.merge(df_product, df_toxicity_info, on="CAS", how="left")
 
@@ -1893,6 +2106,22 @@ def resp_sens_clp(df_product, df_toxicity_info, state = "solid/liquid" or "gas")
 
 ### 4. Aquatic toxicity ###
 ## Acute aquatic tox
+def _continue_m_factor_decades(value, first_tier_upper):
+    """M factor keeps scaling x10 per decade below `first_tier_upper` (Table 9/GHS Table
+    4.1.5: "continue in factor 10 intervals" indefinitely) - `value` must already be
+    <= first_tier_upper. Replaces a previously hardcoded chain that capped out at a flat
+    M factor once `value` dropped far enough (e.g. any LC50 <=0.0001 all got M=10000, or
+    any NOEC <=0.000001 all got M=100000), understating the weight of extremely potent
+    substances beyond that last hardcoded tier."""
+    n = 1
+    upper = first_tier_upper
+    # guard against value <= 0 (shouldn't occur for a real LC50/NOEC) looping forever
+    while value <= upper / 10 and n < 30:
+        upper /= 10
+        n += 1
+    return 10 ** n
+
+
 def acute_aquatic_c2c(df_product, df_toxicity_info, type = "fish" or "daph" or "algae"):
 
     df_calculation = pd.merge(df_product, df_toxicity_info, on="CAS", how="left")
@@ -1914,11 +2143,19 @@ def acute_aquatic_c2c(df_product, df_toxicity_info, type = "fish" or "daph" or "
     hom_materials = df_product["Homogenous Material"].unique().tolist()
 
     # Function to determine hazard_classification
+    known_acute_hazard_literals = {
+        'Not Classified', 'Aqua. Acute 3: H402', 'Aqua. Acute 2: H401', 'Aqua. Acute 1: H400',
+    }
+
     def classify_hazard(row):
         lc50 = row[lc_50]
         hazard = row[hazard_class]
 
-        if pd.isna(lc50) and pd.isna(hazard):
+        # GREY (unknown) whenever there is no usable numeric LC50 AND no RECOGNIZED hazard
+        # classification string - previously an unrecognized/unexpected hazard string (a typo,
+        # a value this tool doesn't know about, etc.) combined with a missing LC50 fell through
+        # to the WORST possible rating by default instead of being flagged as unknown data.
+        if pd.isna(lc50) and hazard not in known_acute_hazard_literals:
             return 'GREY', None
         elif lc50 > 100 or hazard == 'Not Classified':
             return 'GREEN', None
@@ -1928,14 +2165,10 @@ def acute_aquatic_c2c(df_product, df_toxicity_info, type = "fish" or "daph" or "
             return 'Acute 2', None
         elif 0.1 < lc50 <= 1 or hazard == 'Aqua. Acute 1: H400':
             return 'Acute 1', 1
-        elif 0.01 < lc50 <= 0.1:
-            return 'Acute 1', 10
-        elif 0.001 < lc50 <= 0.01:
-            return 'Acute 1', 100
-        elif 0.0001 < lc50 <= 0.001:
-            return 'Acute 1', 1000
         else:
-            return 'Acute 1', 10000
+            # LC50 <= 0.1: M factor continues scaling x10 per decade indefinitely
+            # (Table 9), not capped at a flat 10000 for anything <=0.0001.
+            return 'Acute 1', _continue_m_factor_decades(lc50, 0.1)
 
     df_calculation[["designated_hazard_classification", "designated M factor"]] = df_calculation.apply(classify_hazard, axis=1).apply(pd.Series)
 
@@ -2001,11 +2234,19 @@ def chronic_aquatic_c2c(df_product, df_toxicity_info, type = "fish" or "daph" or
     hom_materials = df_product["Homogenous Material"].unique().tolist()
 
     # Function to determine hazard_classification
+    known_chronic_hazard_literals = {
+        'Aqua. Chronic 4: H413', 'Aqua. Chronic 3: H412', 'Aqua. Chronic 2: H411', 'Aqua. Chronic 1: H410',
+    }
+
     def classify_hazard(row):
         noec_value = row[noec]
         hazard = row[hazard_class]
 
-        if pd.isna(noec_value) and pd.isna(hazard):
+        # GREY (unknown) whenever there is no usable numeric NOEC AND no RECOGNIZED hazard
+        # classification string - previously an unrecognized/unexpected hazard string
+        # combined with a missing NOEC fell through to the WORST possible rating by default
+        # instead of being flagged as unknown data.
+        if pd.isna(noec_value) and hazard not in known_chronic_hazard_literals:
             return 'GREY', None
         elif noec_value > 10:
             return 'GREEN', None
@@ -2019,16 +2260,10 @@ def chronic_aquatic_c2c(df_product, df_toxicity_info, type = "fish" or "daph" or
             return 'Chronic 2', None
         elif 0.01 < noec_value <= 0.1 or hazard == 'Aqua. Chronic 1: H410':
             return 'Chronic 1', 1
-        elif 0.001 < noec_value <= 0.01:
-            return 'Chronic 1', 10
-        elif 0.0001 < noec_value <= 0.001:
-            return 'Chronic 1', 100
-        elif 0.00001 < noec_value <= 0.0001:
-            return 'Chronic 1', 1000
-        elif 0.000001 < noec_value <= 0.00001:
-            return 'Chronic 1', 10000
         else:
-            return 'Chronic 1', 100000
+            # NOEC <= 0.01: M factor continues scaling x10 per decade indefinitely
+            # (Table 9), not capped at a flat 100000 for anything <=0.000001.
+            return 'Chronic 1', _continue_m_factor_decades(noec_value, 0.01)
 
     df_calculation[["designated_hazard_classification", "designated M factor"]] = df_calculation.apply(classify_hazard, axis=1).apply(pd.Series)
 
@@ -2042,10 +2277,16 @@ def chronic_aquatic_c2c(df_product, df_toxicity_info, type = "fish" or "daph" or
     # assessment for each hom mat
     for hom_material in hom_materials:
         df = df_calculation.loc[df_calculation["Homogenous Material"] == hom_material]
-        # Compute the sums for each category based on concentration thresholds
+        # Compute the sums for each category based on concentration thresholds. Table 17
+        # footnote 15: a highly toxic Chronic 1 chemical (NOEC <= 0.01 mg/L) still counts
+        # even below the normal 0.1% cutoff - previously such a chemical was silently
+        # excluded whenever its concentration fell under 0.1%.
+        chronic1_relevant = (df_calculation[hazard_col] == 'Chronic 1') & (
+            (df[conc_col] >= 0.001) | (df[noec] <= 0.01)
+        )
         sum_chronic1_x_m_factor = (
-                df.loc[(df_calculation[hazard_col] == 'Chronic 1') &(df[conc_col] >= 0.001),conc_col] *
-                df.loc[(df_calculation[hazard_col] == 'Chronic 1') &(df[conc_col] >= 0.001), m_col]).sum()
+                df.loc[chronic1_relevant, conc_col] *
+                df.loc[chronic1_relevant, m_col]).sum()
 
         sum_chronic2 = df.loc[(df_calculation[hazard_col] == 'Chronic 2') &(df[conc_col] >= 0.01), conc_col].sum()
 
@@ -2107,41 +2348,27 @@ def final_aquatic_c2c(df_product, df_toxicity_info):
     acute_col = "final assessment acute aquatic tox"
     chronic_col = "final assessment chronic aquatic tox"
 
-    #
-    df["C2C Acute and Chronic Aquatic Toxicity"] = None
-    # If acute = green -> green
-    df.loc[
-        (df[acute_col] == "GREEN"),
-        "C2C Acute and Chronic Aquatic Toxicity"
-    ] = "GREEN"
+    # Combine acute and chronic by worst-case (RED > GREY > YELLOW > GREEN), the same
+    # priority order used everywhere else in this file to combine sub-ratings (per-taxon
+    # combination above, sub-endpoint combination in corr_n_irr/sensitization, etc.).
+    # Figure 8 in the methodology document (p.29) draws this as acute GREEN/RED/GREY locking
+    # in the final rating unconditionally, with chronic only consulted when acute == YELLOW -
+    # but per explicit confirmation, that gated reading is NOT the intended rule: chronic
+    # data must be able to escalate the result even when acute is GREEN (a substance can be
+    # acutely harmless yet chronically hazardous - e.g. persistent/bioaccumulative - and the
+    # methodology's own text says chronic data "should be considered" whenever available,
+    # not only when acute is YELLOW). Worst-case combination is the conservative choice here.
+    priority = {'RED': 0, 'GREY': 1, 'YELLOW': 2, 'GREEN': 3}
 
-    # If acute = RED -> RED
-    df.loc[
-        (df[acute_col] == "RED"),
-        "C2C Acute and Chronic Aquatic Toxicity"
-    ] = "RED"
+    def _worst_of(row):
+        acute, chronic = row[acute_col], row[chronic_col]
+        if pd.isna(chronic):
+            return acute
+        if pd.isna(acute):
+            return chronic
+        return acute if priority.get(acute, 99) <= priority.get(chronic, 99) else chronic
 
-    # If acute = GREY -> GREY
-    df.loc[
-        (df[acute_col] == "GREY"),
-        "C2C Acute and Chronic Aquatic Toxicity"
-    ] = "GREY"
-
-    # If acute is YELLOW, final depends on chronic
-    df.loc[
-        (df[acute_col] == "YELLOW") & (df[chronic_col] == "RED"),
-        "C2C Acute and Chronic Aquatic Toxicity"
-    ] = "RED"
-
-    df.loc[
-        (df[acute_col] == "YELLOW") & (df[chronic_col] == "GREY"),
-        "C2C Acute and Chronic Aquatic Toxicity"
-    ] = "GREY"
-
-    df.loc[
-        (df[acute_col] == "YELLOW") & (df[chronic_col].isin(["YELLOW", "GREEN"])),
-        "C2C Acute and Chronic Aquatic Toxicity"
-    ] = "YELLOW"
+    df["C2C Acute and Chronic Aquatic Toxicity"] = df.apply(_worst_of, axis=1)
 
     return df
 ### All C2C assessments at once ###
@@ -2220,16 +2447,37 @@ def mixture_rules_C2C_assessment(df_product, df_toxicity_info):
                 "C2C Skin and Respiratory Sensitization",
                 "C2C Acute and Chronic Aquatic Toxicity"
             ]
-        ]
+        ].copy()
     except Exception as e:
         print(f"WARNING Column selection failed: {e}")
-        final_c2c_results_summary = final_c2c_results[["hom_material"]]
+        final_c2c_results_summary = final_c2c_results[["hom_material"]].copy()
 
-    # Unknown chemicals
+    # Unknown composition/CAS covers acute toxicity, corrosion/irritation and sensitization
+    # already (each overrides its own column internally) - aquatic toxicity doesn't have that
+    # check yet, so apply it here for that column specifically.
+    incomplete_hom_materials = _hom_materials_with_unknown_composition(df_product)
+    final_c2c_results_summary = _apply_not_full_composition_label(
+        final_c2c_results_summary, incomplete_hom_materials, ["C2C Acute and Chronic Aquatic Toxicity"]
+    )
+
+    # Unknown chemicals (previously just printed and discarded) - surface them as a
+    # diagnostic column instead, listing which CAS/route caused each affected homogeneous
+    # material's acute-toxicity rating to need the "Not full comp" label.
+    final_c2c_results_summary["Unknown ATE chemicals (diagnostic)"] = ""
     try:
-        print(unknown_chemicals_df)
+        if not unknown_chemicals_df.empty and "Homogenous Material" in unknown_chemicals_df.columns:
+            diagnostic_text = (
+                unknown_chemicals_df.assign(
+                    _entry=lambda d: d["CAS"].astype(str) + " (" + d["missing_ATE_route"].astype(str) + ")"
+                )
+                .groupby("Homogenous Material")["_entry"]
+                .agg(lambda s: ", ".join(sorted(set(s))))
+            )
+            final_c2c_results_summary["Unknown ATE chemicals (diagnostic)"] = (
+                final_c2c_results_summary["hom_material"].map(diagnostic_text).fillna("")
+            )
     except Exception as e:
-        print(f"WARNING Could not print unknown chemicals: {e}")
+        print(f"WARNING Could not attach unknown chemicals diagnostic: {e}")
 
     return final_c2c_results_summary
 #################################################################

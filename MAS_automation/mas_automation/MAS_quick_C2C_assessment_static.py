@@ -464,6 +464,16 @@ def calc_row_contribution(row, tier_level=10):
 
 
     return min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat
+### Whether a row's OWN alternative-group picks (ignoring coupling) match this scenario
+def _row_matches_alternative_choices(row, scenario, tier_level=10):
+    for i in range(1, tier_level + 1):
+        alt_group_col = f"t{i}_alt_group"
+        material_col = col_mat.format(i=i)
+        if pd.notna(row.get(alt_group_col)):
+            chosen = scenario["choices"].get(row[alt_group_col])
+            if chosen is not None and row.get(material_col) != chosen:
+                return False
+    return True
 ### Evaluate each scenario
 def evaluate_row_activity(df, scenario, tier_level=10):
     df = df.copy()
@@ -476,6 +486,24 @@ def evaluate_row_activity(df, scenario, tier_level=10):
         ].copy()
 
     selected_materials = set(scenario["choices"].values())
+    # also treat every FIXED (non-alternative) Tier-i Material as "selected", so a coupling
+    # rule pointed at a plain/base material (not itself an alternative choice) can be
+    # satisfied - it previously never could be, since selected_materials only ever held
+    # alternative-group choices. Restricted to rows that are themselves consistent with
+    # this scenario's alternative choices (ignoring coupling) - otherwise a material that
+    # only exists under a DIFFERENT, unchosen alternative branch could leak in and wrongly
+    # satisfy a coupling check in a scenario where that branch was never picked.
+    if not df.empty:
+        alt_consistent_mask = df.apply(
+            lambda r: _row_matches_alternative_choices(r, scenario, tier_level), axis=1
+        )
+        consistent_df = df[alt_consistent_mask]
+        for i in range(1, tier_level + 1):
+            alt_group_col = f"t{i}_alt_group"
+            material_col = col_mat.format(i=i)
+            if alt_group_col in consistent_df.columns and material_col in consistent_df.columns:
+                fixed_mask = consistent_df[alt_group_col].isna()
+                selected_materials |= set(consistent_df.loc[fixed_mask, material_col].dropna().unique())
 
     active_flags = []
     reasons = []
