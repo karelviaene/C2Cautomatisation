@@ -331,6 +331,11 @@ def get_tier_depth(row, tier_level=10):
 def add_helper_columns(df, max_tier):
     df = df.copy()
     df["CAS"] = df.apply(get_final_CAS,args=(max_tier,),  axis=1)
+    # Defensive strip regardless of how clean the source "CAS Tier N" columns were - a
+    # trailing space here (e.g. "100-00-0 ") would otherwise silently fail every DB lookup
+    # keyed on this exact string (COLOUR_ASSESSMENT_C2C/SCONCLIM/toxicity table matching,
+    # the missing-CAS check, etc.) despite looking identical to the eye.
+    df["CAS"] = df["CAS"].astype(str).str.strip()
     df["final_material"] = df.apply(get_final_material, args=(max_tier,), axis=1)
     df["final_supplier"] = df.apply(get_final_supplier, args=(max_tier,), axis=1)
     df["tier_depth"] = df.apply(get_tier_depth,args=(max_tier,),  axis=1)
