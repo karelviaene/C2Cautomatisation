@@ -17,6 +17,9 @@ from collections import Counter
 import openpyxl
 from openpyxl.formula.translate import Translator
 from openpyxl.worksheet.formula import ArrayFormula
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill, Font, Alignment
 
 ########################################################################
 ### C2C ASSESSMENT EXCEL TEMPLATE
@@ -468,6 +471,14 @@ def calc_row_contribution(row, tier_level=10):
 
     min_val_hom_mat = row[min_percent_in_hom_mat]
     max_val_hom_mat = row[max_percent_in_hom_mat]
+
+    # Running % after each tier is folded in, keyed by tier number, so the caller can show
+    # the step-by-step trace (after % of hom mat -> after Tier 1 -> after Tier 2 -> ...) not
+    # just the final value. Tier 1's own entry is the same number as min/max_val_hom_mat /
+    # the starting min/max_val_prod above - included anyway so the trace is complete and
+    # every tier is addressable the same way.
+    tier_track = {1: (min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat)}
+
     # Loop over tiers > 1
     for i in range(2, tier_level + 1):
         material_col = col_mat.format(i=i)
@@ -479,9 +490,10 @@ def calc_row_contribution(row, tier_level=10):
             max_val_prod *= row.get(max_col, 1)
             min_val_hom_mat *= row.get(min_col, 1)
             max_val_hom_mat *= row.get(max_col, 1)
+            tier_track[i] = (min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat)
 
 
-    return min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat
+    return min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat, tier_track
 ### Whether a row's OWN alternative-group picks (ignoring coupling) match this scenario
 def _row_matches_alternative_choices(row, scenario, tier_level=10):
     for i in range(1, tier_level + 1):
@@ -541,13 +553,65 @@ def evaluate_row_activity(df, scenario, tier_level=10):
     df["status_reason"] = reasons
 
     return df
+### Derive a hom mat's weight-in-product from its Tier 1 materials' weights, when neither
+### the hom mat's own weight-in-product NOR its %-in-product were given directly.
+def calculate_hom_mat_weight_from_tier1(df):
+    """Some MAS files only give the Tier 1 material weight (min_weight_in_hom_mat /
+    max_weight_in_hom_mat) and never the hom mat's own weight-in-product or %-in-product.
+    In that case, derive the hom mat's weight-in-product by summing the Tier 1 weights of
+    its own ACTIVE rows for this scenario - so an alternative branch that was NOT chosen in
+    this scenario never contributes its weight. Must run after evaluate_row_activity (needs
+    "active") and before calculate_material_percentages_product, whose existing mass-based
+    %-of-product fallback then picks up the derived weight automatically.
+    Min and max are derived independently: if even one active row's Tier 1 weight is missing
+    for a given side (min or max), that side is left as NaN rather than silently summing only
+    the rows that DO have a value - understating a hom mat's true weight would be an unsafe,
+    non-conservative % of hom mat in product."""
+    df = df.copy()
+    needs_derivation = (
+        df[min_weight_in_product].isna()
+        & df[max_weight_in_product].isna()
+        & df[min_percent_in_product].isna()
+        & df[max_percent_in_product].isna()
+    )
+    only_active = df["active"] == True
+    candidates = df.loc[only_active & needs_derivation]
+    if candidates.empty:
+        return df
+
+    id_keys = [product, hom_mat]
+
+    def _sum_or_nan(s):
+        return np.nan if s.isna().any() or s.empty else s.sum()
+
+    grouped = candidates.groupby(id_keys)
+    min_sums = grouped[min_weight_in_hom_mat].apply(_sum_or_nan)
+    max_sums = grouped[max_weight_in_hom_mat].apply(_sum_or_nan)
+
+    df["key"] = list(zip(*(df[k] for k in id_keys)))
+    fill_mask = needs_derivation & only_active
+    df.loc[fill_mask, min_weight_in_product] = df.loc[fill_mask, "key"].map(min_sums)
+    df.loc[fill_mask, max_weight_in_product] = df.loc[fill_mask, "key"].map(max_sums)
+    df.drop(columns=["key"], inplace=True)
+    return df
 ### Calculate the % contribution per product
 def calculate_material_percentages_product(df):
     df = df.copy()
     df_mass_calc = df.copy()
-    keys = [product, min_weight_in_product, max_weight_in_product, hom_mat]
+    # Identity of "one homogeneous material in this product" is (product, hom_mat) alone.
+    # A hom mat's own weight-in-product is a HOM-MAT-LEVEL attribute that is repeated across
+    # every one of its child rows (one row per Tier 1 ingredient/CAS underneath it, or per
+    # active alternative). Deduplicating on a key that ALSO includes the weight columns
+    # (as before) breaks whenever those child rows don't carry an identical weight value -
+    # e.g. a real MAS row filled with a stale/mismatched number, or an alternative swap that
+    # legitimately changes the hom mat's declared total - two rows of the SAME hom mat then
+    # look like two DIFFERENT hom mats to drop_duplicates(), and its weight gets summed once
+    # per distinct value instead of once per hom mat, inflating the product-level total and
+    # skewing every %-of-product this fallback produces for that product.
+    id_keys = [product, hom_mat]
+    keys = id_keys + [min_weight_in_product, max_weight_in_product]
     only_active = df_mass_calc["active"] == True
-    df_mass_calc_unique = df.loc[only_active, keys].drop_duplicates()
+    df_mass_calc_unique = df.loc[only_active, keys].groupby(id_keys, as_index=False).first()
 
     def calculations_for_material_percentages_product(df):
         """  Calculate the percentage of material based on mass given (worst & best case scenarios)"""
@@ -568,8 +632,11 @@ def calculate_material_percentages_product(df):
     #calculate_material_percentages_product(df_mass_calc_unique)
     df_mass_calc_unique = calculations_for_material_percentages_product(df_mass_calc_unique)
     #
-    df_mass_calc_unique["key"] = list(zip(*(df_mass_calc_unique[k] for k in keys)))
-    df["key"] = list(zip(*(df[k] for k in keys)))
+    # Map the computed percentage back onto every row of that (product, hom_mat) BY IDENTITY
+    # only - not by each row's own (possibly inconsistent) weight value - so every child row
+    # of the same hom mat gets the SAME %-of-product.
+    df_mass_calc_unique["key"] = list(zip(*(df_mass_calc_unique[k] for k in id_keys)))
+    df["key"] = list(zip(*(df[k] for k in id_keys)))
     #
     min_map = df_mass_calc_unique.set_index("key")[min_percent_in_product]
     max_map = df_mass_calc_unique.set_index("key")[max_percent_in_product]
@@ -582,9 +649,14 @@ def calculate_material_percentages_product(df):
 def calculate_material_percentages_hom_mat(df):
     df = df.copy()
     df_mass_calc = df.copy()
-    keys = [ hom_mat, min_weight_in_hom_mat, max_weight_in_hom_mat, col_mat_tier_1]
+    # Same fix as calculate_material_percentages_product, one tier down: identity of "one
+    # Tier 1 material within this hom mat" is (hom_mat, Tier 1 Material) alone - its own
+    # weight is a Tier-1-level attribute that must not be re-treated as part of the identity
+    # (see the comment in calculate_material_percentages_product for why that double-counts).
+    id_keys = [hom_mat, col_mat_tier_1]
+    keys = id_keys + [min_weight_in_hom_mat, max_weight_in_hom_mat]
     only_active = df_mass_calc["active"] == True
-    df_mass_calc_unique = df.loc[only_active, keys].drop_duplicates()
+    df_mass_calc_unique = df.loc[only_active, keys].groupby(id_keys, as_index=False).first()
 
     def calculations_for_material_percentages_hom_mat(df):
         """  Calculate the percentage of material based on mass given (worst & best case scenarios)"""
@@ -605,8 +677,8 @@ def calculate_material_percentages_hom_mat(df):
     #calculate_material_percentages_product(df_mass_calc_unique)
     df_mass_calc_unique = calculations_for_material_percentages_hom_mat(df_mass_calc_unique)
 
-    df_mass_calc_unique["key"] = list(zip(*(df_mass_calc_unique[k] for k in keys)))
-    df["key"] = list(zip(*(df[k] for k in keys)))
+    df_mass_calc_unique["key"] = list(zip(*(df_mass_calc_unique[k] for k in id_keys)))
+    df["key"] = list(zip(*(df[k] for k in id_keys)))
 
     min_map = df_mass_calc_unique.set_index("key")[min_percent_in_hom_mat]
     max_map = df_mass_calc_unique.set_index("key")[max_percent_in_hom_mat]
@@ -616,29 +688,45 @@ def calculate_material_percentages_hom_mat(df):
     df.drop(["key"], axis=1, inplace=True)
     return df
 ### calculating the % in product and hom mat
-def calculate_row_contributions(df):
+def calculate_row_contributions(df, tier_level=None):
     df = df.copy()
+    # Auto-detect this dataset's own deepest tier (instead of a fixed hardcoded depth) so the
+    # per-tier tracking columns added below only go as far as tiers actually present in the file.
+    if tier_level is None:
+        tier_level = get_highest_tier(df, col_mat)
 
     min_val_prod_contibutions = []
     max_val_prod_contibutions = []
     min_val_hom_mat_contibutions = []
     max_val_hom_mat_contibutions = []
+    tier_tracks = []
     for _, row in df.iterrows():
         if row.get("active") is True:
-            min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat = calc_row_contribution(row)
+            min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat, tier_track = calc_row_contribution(row, tier_level=tier_level)
         else:
-            min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat = np.nan, np.nan, np.nan, np.nan
+            min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat, tier_track = np.nan, np.nan, np.nan, np.nan, {}
 
         min_val_prod_contibutions.append(min_val_prod)
         max_val_prod_contibutions.append(max_val_prod)
         min_val_hom_mat_contibutions.append(min_val_hom_mat)
         max_val_hom_mat_contibutions.append(max_val_hom_mat)
+        tier_tracks.append(tier_track)
 
 
     df["min_contribution_prod"] = min_val_prod_contibutions
     df["max_contribution_prod"] = max_val_prod_contibutions
     df["min_contribution_hom_mat"] = min_val_hom_mat_contibutions
     df["max_contribution_hom_mat"] = max_val_hom_mat_contibutions
+
+    # Per-tier running % trace ("after % of hom mat, then Tier 1, then Tier 2, ..."), so the
+    # cumulative calculation is auditable step by step, not just visible as the final result.
+    # A tier column stays NaN for rows that don't go that deep (or aren't active).
+    _missing = (np.nan, np.nan, np.nan, np.nan)
+    for i in range(1, tier_level + 1):
+        df[f"min_contribution_prod_t{i}"] = [t.get(i, _missing)[0] for t in tier_tracks]
+        df[f"max_contribution_prod_t{i}"] = [t.get(i, _missing)[1] for t in tier_tracks]
+        df[f"min_contribution_hom_mat_t{i}"] = [t.get(i, _missing)[2] for t in tier_tracks]
+        df[f"max_contribution_hom_mat_t{i}"] = [t.get(i, _missing)[3] for t in tier_tracks]
 
     calc_df = df.copy()
     return calc_df
@@ -670,6 +758,7 @@ def build_selected_scenarios_df(df, scenarios, selected_scenario_ids):
             continue
 
         scenario_df = evaluate_row_activity(df, scenario)
+        scenario_df = calculate_hom_mat_weight_from_tier1(scenario_df)
         product_percent_df = calculate_material_percentages_product(scenario_df)
         hom_mat_percent_df = calculate_material_percentages_hom_mat(product_percent_df)
         scenario_evaluated = calculate_row_contributions(hom_mat_percent_df).copy()
@@ -679,7 +768,7 @@ def build_selected_scenarios_df(df, scenarios, selected_scenario_ids):
         return pd.concat(results, ignore_index=True)
 
     return pd.DataFrame()
-def analyse_the_dataset_with_mixture_rules(df, scenarios, df_toxicity_info):
+def analyse_the_dataset_with_mixture_rules(df, scenarios, db_path):
     metrics = [
         "min_contribution_prod",
         "max_contribution_prod",
@@ -696,6 +785,7 @@ def analyse_the_dataset_with_mixture_rules(df, scenarios, df_toxicity_info):
         # worst-case-across-scenarios aggregation below - "we don't have enough data to say"
         # must surface at least as prominently as any colour that WAS computed.
         NOT_FULL_COMPOSITION_LABEL.upper(): 6,
+        NOT_ENOUGH_INFO_LABEL.upper(): 7,
     }
 
     def clean_colour(value):
@@ -728,6 +818,7 @@ def analyse_the_dataset_with_mixture_rules(df, scenarios, df_toxicity_info):
 
     for scenario in tqdm(scenarios, desc="Scenarios", total=len(scenarios)):
         scenario_df = evaluate_row_activity(df, scenario)
+        scenario_df = calculate_hom_mat_weight_from_tier1(scenario_df)
         product_percent_df = calculate_material_percentages_product(scenario_df)
         hom_mat_percent_df = calculate_material_percentages_hom_mat(product_percent_df)
         scenario_evaluated = calculate_row_contributions(hom_mat_percent_df).copy()
@@ -805,8 +896,13 @@ def analyse_the_dataset_with_mixture_rules(df, scenarios, df_toxicity_info):
         sum_min_not_assessed = not_assessed_df["min_contribution_prod"].sum(skipna=True)
         sum_max_not_assessed = not_assessed_df["max_contribution_prod"].sum(skipna=True)
 
-        sum_min_calc_w_not_assessed = 1 - sum_max_not_assessed
-        sum_max_calc_w_not_assessed = 1 - sum_min_not_assessed
+        # Round away machine-epsilon-scale floating point residue (e.g. 2.22e-16 instead
+        # of an exact 0 when a product's own contributions sum to ~1.0 by construction) -
+        # see the identical fix in MAS_quick_C2C_assessment_static.py's
+        # _pct_assessed_by_group for the full rationale. A genuine >100% composition data
+        # issue still shows up as a real, well-above-epsilon negative value.
+        sum_min_calc_w_not_assessed = round(1 - sum_max_not_assessed, 10)
+        sum_max_calc_w_not_assessed = round(1 - sum_min_not_assessed, 10)
 
         rec = scenario_extremes.setdefault("global", {})
 
@@ -857,22 +953,22 @@ def analyse_the_dataset_with_mixture_rules(df, scenarios, df_toxicity_info):
         # Only run if there are active rows
         if not active_product_df.empty:
 
-            c2c_summary_df = mixture_rules_C2C_assessment(
+            c2c_summary_df = mixture_rules_C2C_assessment_from_db(
                 active_product_df,
-                df_toxicity_info
+                db_path
             )
 
             # Add scenario ID for traceability
             c2c_summary_df["scenario_id"] = scenario_id
             all_c2c_scenario_results.append(c2c_summary_df)
 
-            # These are the output columns from mixture_rules_C2C_assessment
+            # These are the output columns from mixture_rules_C2C_assessment_from_db
             c2c_endpoint_cols = [
                 "C2C acute toxicity",
                 "C2C Skin, Eye, and Respiratory Irritation",
                 "C2C Skin and Respiratory Sensitization",
                 "C2C Acute and Chronic Aquatic Toxicity",
-            ]
+            ] + [f"C2C {label}" for label in ASSESSMENT_C_ENDPOINTS.values()]
 
             # -----------------------------
             # Aggregate worst colour per HOMOGENEOUS MATERIAL
@@ -982,6 +1078,7 @@ def analyse_the_dataset(df, scenarios):
 
     for scenario in tqdm(scenarios, desc="Scenarios", total=len(scenarios)):
         scenario_df = evaluate_row_activity(df, scenario)
+        scenario_df = calculate_hom_mat_weight_from_tier1(scenario_df)
         product_percent_df = calculate_material_percentages_product(scenario_df)
         hom_mat_percent_df = calculate_material_percentages_hom_mat(product_percent_df)
         scenario_evaluated = calculate_row_contributions(hom_mat_percent_df).copy()
@@ -1055,8 +1152,13 @@ def analyse_the_dataset(df, scenarios):
         sum_min_not_assessed = not_assessed_df["min_contribution_prod"].sum(skipna=True)
         sum_max_not_assessed = not_assessed_df["max_contribution_prod"].sum(skipna=True)
 
-        sum_min_calc_w_not_assessed = 1 - sum_max_not_assessed
-        sum_max_calc_w_not_assessed = 1 - sum_min_not_assessed
+        # Round away machine-epsilon-scale floating point residue (e.g. 2.22e-16 instead
+        # of an exact 0 when a product's own contributions sum to ~1.0 by construction) -
+        # see the identical fix in MAS_quick_C2C_assessment_static.py's
+        # _pct_assessed_by_group for the full rationale. A genuine >100% composition data
+        # issue still shows up as a real, well-above-epsilon negative value.
+        sum_min_calc_w_not_assessed = round(1 - sum_max_not_assessed, 10)
+        sum_max_calc_w_not_assessed = round(1 - sum_min_not_assessed, 10)
 
         rec = scenario_extremes.setdefault("global", {})
 
@@ -2480,6 +2582,37 @@ def mixture_rules_C2C_assessment(df_product, df_toxicity_info):
         print(f"WARNING Could not attach unknown chemicals diagnostic: {e}")
 
     return final_c2c_results_summary
+
+
+### Full mixture-rules assessment straight from the DB: builds df_toxicity_info from the
+### real database (build_mixture_rules_toxicity_info_from_db) instead of an Excel file,
+### runs the existing 4 additive endpoint groups via mixture_rules_C2C_assessment
+### unchanged, and merges in the Assessment C endpoints (assessment_c_mixture_rules).
+def mixture_rules_C2C_assessment_from_db(df_product, db_path):
+    cas_list = df_product["CAS"].unique().tolist()
+    df_toxicity_info = build_mixture_rules_toxicity_info_from_db(cas_list, db_path)
+
+    base_result = mixture_rules_C2C_assessment(df_product, df_toxicity_info)
+
+    # Assessment C is not individually safe_run-wrapped internally (unlike each of the 4
+    # groups inside mixture_rules_C2C_assessment above) - a DB hiccup or schema surprise
+    # here must not take down the otherwise-valid, already-computed base_result for this
+    # scenario. Degrade to NOT_ENOUGH_INFO_LABEL for Assessment C's own columns only.
+    try:
+        assessment_c_result = assessment_c_mixture_rules(df_product, cas_list, db_path)
+    except Exception as e:
+        print(f"WARNING assessment_c_mixture_rules failed: {e}")
+        hom_materials = df_product["Homogenous Material"].unique().tolist()
+        assessment_c_result = pd.DataFrame({
+            "hom_material": hom_materials,
+            **{f"C2C {label}": NOT_ENOUGH_INFO_LABEL for label in ASSESSMENT_C_ENDPOINTS.values()},
+        })
+
+    try:
+        return base_result.merge(assessment_c_result, on="hom_material", how="outer")
+    except Exception as e:
+        print(f"WARNING Could not merge Assessment C results: {e}")
+        return base_result
 #################################################################
 ### Filter out placeholder/invalid CAS values before querying the DB
 CAS_NUMBER_PATTERN = re.compile(r"^\d{2,7}-\d{2}-\d$")
@@ -2842,6 +2975,328 @@ def extract_colour_assessment_C2C(cas_list, db_path):
 
     return df, df_missing
 
+### Build a df_toxicity_info-shaped DataFrame (matching exactly what every C2C_*/mixture-
+### rule function already expects) straight from the real production database, replacing
+### the old toxicity-info Excel file as the mixture-rules pipeline's data source.
+def build_mixture_rules_toxicity_info_from_db(cas_list, db_path):
+    """
+    Real DB schema (confirmed against the production database, "Skin Sens 1A" is spelled
+    without a period unlike every other SCONCLIM column - renamed below to match the
+    convention skin_and_resp_sens_c2c already looks for):
+    - ORALTOX / DERMALTOX / INHALTOX: each numeric measurement is stored as a
+      ("<label> =", "<label> =-1") pair of TEXT columns - treated here as a (bound1, bound2)
+      range and reduced to the WORSE (numerically lower = more hazardous) of the two.
+    - AQUATOX / FISHTOX / INVTOX ("daph" in this codebase's naming) / ALGAETOX: same
+      TEXT-pair convention for LC50/NOEC values.
+    - SENSITISATION: raw CLP classification text per route.
+    - SCONCLIM: whatever %-limit columns exist, pulled generically (not hardcoded) so any
+      SCL ARCHE adds later is picked up automatically.
+    - COLOUR_ASSESSMENT_C2C: pre-computed per-chemical C2C colour ratings, reused for the
+      acute-toxicity GREY flag, the skin/eye/resp irritation input, and the sensitization
+      "mild sensitization -> YELLOW" passthrough (via extract_colour_assessment_C2C).
+    """
+    # Every column the mixture-rule functions merge on/read, even when no CAS ends up
+    # queryable at all (e.g. a homogeneous material whose only rows have no valid CAS) -
+    # returning just ["CAS"] in that case would make every downstream merge raise a
+    # KeyError on the FIRST column it tries to read (e.g. "LD50_oral"), which safe_run
+    # would then silently swallow as a total failure for that endpoint group, dropping the
+    # homogeneous material's row entirely instead of correctly falling through to the
+    # "Not full comp" label.
+    empty_columns = [
+        "CAS", "LD50_oral", "LD50_dermal", "LC50_gas", "LC50_vapour", "LC50_dust_mist_aerosol",
+        "CLP oral class", "CLP dermal class", "CLP inhalation class",
+        "skin_sensitisation", "resp_sensitisation",
+        "aquatic_tox_acute", "aquatic_tox_chronic", "m_factor",
+        "fish_lc50", "fish_lc50_qsar", "fish_noec", "fish_noec_qsar",
+        "daph_lc50", "daph_lc50_qsar", "daph_noec", "daph_noec_qsar",
+        "algae_lc50", "algae_lc50_qsar", "algae_noec", "algae_noec_qsar",
+        "oral toxicity C2C assessment", "inhalative toxicity C2C assessment",
+        "dermal toxicity C2C assessment", "skin eye respiratory corrosion irritation C2C assessment",
+        "sensitization C2C assessment",
+    ]
+
+    cas_list = clean_cas_values(cas_list)
+    if not cas_list:
+        return pd.DataFrame(columns=empty_columns)
+
+    colour_df, _ = extract_colour_assessment_C2C(cas_list, db_path)
+
+    try:
+        conn = sqlite3.connect(db_path)
+    except Exception as e:
+        print(f"[ERROR] Cannot connect to DB for mixture-rules toxicity info: {e}")
+        return pd.DataFrame(columns=empty_columns)
+
+    warned_queries = set()
+
+    def _warn_once(table, col, e):
+        key = (table, col)
+        if key not in warned_queries:
+            warned_queries.add(key)
+            print(f"[WARNING] Query against {table}.\"{col}\" failed (reported once): {e}")
+
+    def fetch_worst_numeric(table, cas, value_col):
+        """Read the ("<value_col>", "<value_col>-1") pair for this CAS and return the
+        worse (lower) of the two after coercing to numeric; NaN if neither parses."""
+        try:
+            cur = conn.cursor()
+            cur.execute(f'SELECT "{value_col}", "{value_col}-1" FROM "{table}" WHERE ref = ?', (cas,))
+            row = cur.fetchone()
+        except Exception as e:
+            _warn_once(table, value_col, e)
+            return np.nan
+        if not row:
+            return np.nan
+        nums = [n for n in (pd.to_numeric(v, errors="coerce") for v in row) if pd.notna(n)]
+        return min(nums) if nums else np.nan
+
+    def fetch_text(table, cas, *cols):
+        try:
+            cols_sql = ", ".join(f'"{c}"' for c in cols)
+            cur = conn.cursor()
+            cur.execute(f'SELECT {cols_sql} FROM "{table}" WHERE ref = ?', (cas,))
+            row = cur.fetchone()
+        except Exception as e:
+            _warn_once(table, ", ".join(cols), e)
+            return (None,) * len(cols)
+        return row if row else (None,) * len(cols)
+
+    rows = []
+    for cas in cas_list:
+        (oral_class,) = fetch_text("ORALTOX", cas, "Oral toxicity Acute Tox classified")
+        (dermal_class,) = fetch_text("DERMALTOX", cas, "Dermal toxicity Acute Tox classified")
+        (inhal_class,) = fetch_text("INHALTOX", cas, "Inhalative toxicity Acute Tox classification")
+        skin_sens, resp_sens = fetch_text(
+            "SENSITISATION", cas,
+            "Skin sensitization CLP classification", "Respiratory sensitization CLP classification",
+        )
+        aquatic_acute, aquatic_chronic, m_factor_raw = fetch_text(
+            "AQUATOX", cas,
+            "Aquatic toxicity Acute Tox classified", "Aquatic toxicity Chronic Tox classified", "M factor",
+        )
+
+        rows.append({
+            "CAS": cas,
+            "LD50_oral": fetch_worst_numeric("ORALTOX", cas, "Oral Acute: LD50 ="),
+            "LD50_dermal": fetch_worst_numeric("DERMALTOX", cas, "Dermal Acute: LD50 ="),
+            "LC50_gas": fetch_worst_numeric("INHALTOX", cas, "Inhalative toxicity Acute: LC50 (gas) ="),
+            "LC50_vapour": fetch_worst_numeric("INHALTOX", cas, "Inhalative toxicity Acute: LC50 (vapor) ="),
+            "LC50_dust_mist_aerosol": fetch_worst_numeric("INHALTOX", cas, "Inhalative toxicity Acute: LC50 (dust/mist/aerosol) ="),
+            "CLP oral class": oral_class,
+            "CLP dermal class": dermal_class,
+            "CLP inhalation class": inhal_class,
+            "skin_sensitisation": skin_sens,
+            "resp_sensitisation": resp_sens,
+            "aquatic_tox_acute": aquatic_acute,
+            "aquatic_tox_chronic": aquatic_chronic,
+            "m_factor": pd.to_numeric(m_factor_raw, errors="coerce"),
+            "fish_lc50": fetch_worst_numeric("FISHTOX", cas, "Fish toxicity Acute: LC50 (96h) ="),
+            "fish_lc50_qsar": fetch_worst_numeric("FISHTOX", cas, "Fish toxicity Acute QSAR: LC50 ="),
+            "fish_noec": fetch_worst_numeric("FISHTOX", cas, "Fish toxicity Chronic: NOEC ="),
+            "fish_noec_qsar": fetch_worst_numeric("FISHTOX", cas, "Fish toxicity Chronic QSAR: NOEC ="),
+            "daph_lc50": fetch_worst_numeric("INVTOX", cas, "Invertebrate toxicity Acute: L(E)C50 (48h) ="),
+            "daph_lc50_qsar": fetch_worst_numeric("INVTOX", cas, "Invertebrae toxicity Acute QSAR: LC50 ="),
+            "daph_noec": fetch_worst_numeric("INVTOX", cas, "Invertebrae toxicity Chronic: NOEC ="),
+            "daph_noec_qsar": fetch_worst_numeric("INVTOX", cas, "Invertebrae toxicity Chronic QSAR: NOEC ="),
+            "algae_lc50": fetch_worst_numeric("ALGAETOX", cas, "Algae toxicity Acute: L(E)C50 (72/96h) ="),
+            "algae_lc50_qsar": fetch_worst_numeric("ALGAETOX", cas, "Algae toxicity Acute QSAR: LC50 ="),
+            "algae_noec": fetch_worst_numeric("ALGAETOX", cas, "Algae toxicity Chronic: NOEC ="),
+            "algae_noec_qsar": fetch_worst_numeric("ALGAETOX", cas, "Algae toxicity Chronic QSAR: NOEC ="),
+        })
+
+    # SCL columns (SCONCLIM), pulled generically so any endpoint's SCL - present today or
+    # added later - is automatically available under the naming convention
+    # skin_and_resp_sens_c2c already looks for ("<Endpoint> - Lower/Upper Limit: (%)").
+    scl_rename = {"Skin Sens 1A - Upper Limit: (%)": "Skin Sens. 1A - Upper Limit: (%)"}
+    try:
+        cur = conn.cursor()
+        cur.execute('PRAGMA table_info("SCONCLIM")')
+        scl_cols = [r[1] for r in cur.fetchall() if r[1] not in ("ID", "ref")]
+    except Exception as e:
+        print(f"[WARNING] SCONCLIM schema issue: {e}")
+        scl_cols = []
+
+    scl_rows = []
+    if scl_cols:
+        cols_sql = ", ".join(f'"{c}"' for c in scl_cols)
+        for cas in cas_list:
+            try:
+                cur = conn.cursor()
+                cur.execute(f'SELECT {cols_sql} FROM "SCONCLIM" WHERE ref = ?', (cas,))
+                row = cur.fetchone()
+            except Exception:
+                row = None
+            record = {"CAS": cas}
+            if row:
+                for col, val in zip(scl_cols, row):
+                    record[scl_rename.get(col, col)] = val
+            scl_rows.append(record)
+
+    conn.close()
+
+    df = pd.DataFrame(rows)
+    if scl_rows:
+        df = df.merge(pd.DataFrame(scl_rows), on="CAS", how="left")
+
+    # Merge whenever colour_df has the columns we need - NOT gated on colour_df being
+    # non-empty: a chemical simply absent from COLOUR_ASSESSMENT_C2C (a normal, expected
+    # case, not a failure) still returns a correctly-columned but zero-ROW DataFrame from
+    # extract_colour_assessment_C2C, and skipping the merge in that case would silently
+    # drop all 5 "... C2C assessment" columns from the output - which C2C_acute_toxicity's
+    # GREY-flag logic then reads UNGUARDED (df_hom["oral toxicity C2C assessment"], no
+    # "in df.columns" check), raising a bare KeyError instead of just seeing NaN. Only skip
+    # the merge if colour_df itself lacks the expected columns entirely (the DB-connection-
+    # or query-failure fallback path in extract_colour_assessment_C2C, which returns a
+    # truly columnless DataFrame).
+    if "C2C_assessment_oral_toxicity" in colour_df.columns:
+        df = df.merge(
+            colour_df.rename(columns={
+                "C2C_assessment_oral_toxicity": "oral toxicity C2C assessment",
+                "C2C_assessment_inhalative_toxicity": "inhalative toxicity C2C assessment",
+                "C2C_assessment_dermal_toxicity": "dermal toxicity C2C assessment",
+                "C2C_assessment_skin_eye_respiratory_corrosion_irritation": "skin eye respiratory corrosion irritation C2C assessment",
+                "C2C_assessment_sensitization": "sensitization C2C assessment",
+            })[[
+                "CAS",
+                "oral toxicity C2C assessment",
+                "inhalative toxicity C2C assessment",
+                "dermal toxicity C2C assessment",
+                "skin eye respiratory corrosion irritation C2C assessment",
+                "sensitization C2C assessment",
+            ]],
+            on="CAS", how="left",
+        )
+
+    return df
+
+
+### Assessment C: every C2C hazard endpoint NOT covered by the additive mixture-rule
+### functions above (acute mammalian toxicity; skin/eye/respiratory irritation; skin/
+### respiratory sensitization; aquatic toxicity). Per the methodology (section 1.5/2.2),
+### CLP/GHS itself does not apply additive summation to Carcinogenicity, Germ Cell
+### Mutagenicity, Reproductive Toxicity, or STOT - there is no scientific basis for
+### assuming dilution reduces hazard for these endpoints. C2C extends the same non-
+### additive treatment to every other endpoint in its 21-endpoint hazard list.
+NOT_ENOUGH_INFO_LABEL = "NOT ENOUGH INFO TO CALCULATE - NO MIXTURE RULES APPLIED"
+
+ASSESSMENT_C_ENDPOINTS = {
+    "C2C_assessment_carcinogenicity": "Carcinogenicity",
+    "C2C_assessment_disruption_of_endocrine_system": "Endocrine Disruption",
+    "C2C_assessment_mutagenicity_genotoxicity": "Mutagenicity/Genotoxicity",
+    "C2C_assessment_reproductive_toxicity": "Reproductive Toxicity",
+    "C2C_assessment_development_toxicity": "Developmental Toxicity",
+    "C2C_assessment_neurotoxicity": "Neurotoxicity",
+    "C2C_assessment_terrestrial_toxicity": "Terrestrial Toxicity",
+    "C2C_assessment_other_species_toxicity": "Other Species Toxicity",
+    "C2C_assessment_persistence": "Persistence",
+    "C2C_assessment_bioaccumulation": "Bioaccumulation",
+    "C2C_assessment_combined_pb_risk_flag": "Combined PB Risk Flag",
+    "C2C_assessment_combined_aquatic_risk_flag": "Combined Aquatic Risk Flag",
+    "C2C_assessment_climatic_relevance_ozone_depletion_potential": "Climatic Relevance / Ozone Depletion Potential",
+}
+
+# GREEN < YELLOW < GREY < RED, matching the quick_static app's own worst_rating convention
+# (extract_info_from_DB's rating_rank) - re-used here for consistency across the toolkit.
+_ASSESSMENT_C_RANK = {"GREEN": 1, "YELLOW": 2, "GREY": 3, "RED": 4}
+
+# Per-endpoint SCL column name(s) in SCONCLIM, if one exists for that endpoint - none of
+# SCONCLIM's current columns (Skin Corr. 1B, Eye/Skin Irrit. 2, STOT SE 3, AAA, Skin Sens.
+# 1/1A) correspond to any Assessment C endpoint today. Add an entry here
+# (endpoint_colour_col -> "<SCL column> - Lower Limit: (%)") if/when ARCHE adds one; until
+# then every endpoint below uses the flat 0.01% cut-off only.
+ASSESSMENT_C_SCL_COLUMNS = {}
+
+
+def assessment_c_mixture_rules(df_product, cas_list, db_path):
+    """
+    Non-additive C2C mixture rule for every "Assessment C" endpoint: per homogeneous
+    material, a chemical is "relevant" if its concentration is >= 0.01% OR above its own
+    SCL for that endpoint (if one is defined in ASSESSMENT_C_SCL_COLUMNS); the hom mat's
+    rating is the WORST rating among its relevant chemicals. If any relevant chemical has
+    no usable rating for that endpoint, the hom mat's rating for that endpoint is
+    NOT_ENOUGH_INFO_LABEL rather than a possibly-wrong computed value.
+    """
+    colour_df, _ = extract_colour_assessment_C2C(cas_list, db_path)
+
+    d = df_product.copy()
+    d["conc_hom_mat"] = d[["min_contribution_hom_mat", "max_contribution_hom_mat"]].max(axis=1)
+    d = d.merge(colour_df, on="CAS", how="left")
+
+    hom_materials = df_product["Homogenous Material"].unique().tolist()
+    rows = []
+    for hom_material in hom_materials:
+        sub = d.loc[d["Homogenous Material"] == hom_material]
+        record = {"hom_material": hom_material}
+
+        for colour_col, label in ASSESSMENT_C_ENDPOINTS.items():
+            out_col = f"C2C {label}"
+
+            relevant_mask = (sub["CAS"] != "not assessed") & sub["conc_hom_mat"].notna() & (sub["conc_hom_mat"] >= 0.0001)
+            scl_col = ASSESSMENT_C_SCL_COLUMNS.get(colour_col)
+            if scl_col and scl_col in sub.columns:
+                scl_fraction = pd.to_numeric(sub[scl_col], errors="coerce") / 100.0
+                relevant_mask = relevant_mask | (sub["conc_hom_mat"] > scl_fraction)
+
+            relevant = sub.loc[relevant_mask]
+
+            if relevant.empty:
+                record[out_col] = "GREEN"
+                continue
+
+            raw_values = relevant[colour_col] if colour_col in relevant.columns else pd.Series(dtype=object)
+            if raw_values.isna().any() or len(raw_values) < len(relevant):
+                record[out_col] = NOT_ENOUGH_INFO_LABEL
+                continue
+
+            ratings = raw_values.astype(str).str.strip().str.upper()
+            if (~ratings.isin(_ASSESSMENT_C_RANK)).any():
+                record[out_col] = NOT_ENOUGH_INFO_LABEL
+                continue
+
+            record[out_col] = max(ratings, key=lambda x: _ASSESSMENT_C_RANK[x])
+
+        rows.append(record)
+
+    result_df = pd.DataFrame(rows)
+
+    # Unknown composition/CAS (the same completeness gate used by every other endpoint
+    # group) also invalidates Assessment C's results for that hom mat.
+    incomplete_hom_materials = _hom_materials_with_unknown_composition(df_product)
+    endpoint_cols = [f"C2C {label}" for label in ASSESSMENT_C_ENDPOINTS.values()]
+    result_df = _apply_not_full_composition_label(result_df, incomplete_hom_materials, endpoint_cols)
+    return result_df
+
+
+### Every per-tier running-% column calculate_row_contributions() may have added, in a
+### stable (tier ascending, prod before hom_mat, min before max) order - so the detailed
+### overview always lists them the same way regardless of dict/column ordering.
+_TIER_CONTRIBUTION_PATTERN = re.compile(r"^(min|max)_contribution_(prod|hom_mat)_t(\d+)$")
+
+
+def _sorted_tier_contribution_cols(columns):
+    def sort_key(col):
+        m = _TIER_CONTRIBUTION_PATTERN.match(col)
+        minmax, kind, tier = m.group(1), m.group(2), int(m.group(3))
+        return (tier, kind != "prod", minmax != "min")
+
+    return sorted((c for c in columns if _TIER_CONTRIBUTION_PATTERN.match(c)), key=sort_key)
+
+
+def _tier_contribution_rename_map(tier_cols):
+    labels = {
+        ("min", "prod"): "Minimal % of material in product after Tier {t}",
+        ("max", "prod"): "Maximal % of material in product after Tier {t}",
+        ("min", "hom_mat"): "Minimal % of material in homogenous material after Tier {t}",
+        ("max", "hom_mat"): "Maximal % of material in homogenous material after Tier {t}",
+    }
+    rename_map = {}
+    for col in tier_cols:
+        m = _TIER_CONTRIBUTION_PATTERN.match(col)
+        minmax, kind, tier = m.group(1), m.group(2), m.group(3)
+        rename_map[col] = labels[(minmax, kind)].format(t=tier)
+    return rename_map
+
+
 ### Build a C2C assessment df (product/material/contribution cols + DB hazards) from a scenarios df
 def build_c2c_assessment_df(scenarios_df, db_path):
     """
@@ -2867,6 +3322,17 @@ def build_c2c_assessment_df(scenarios_df, db_path):
     ]
     base_cols = [c for c in base_cols if c in scenarios_df.columns]
     c2c_df = scenarios_df[base_cols].copy()
+    # Keep the per-tier running-% columns (if calculate_row_contributions() produced them)
+    # OUT of base_cols on purpose - they must land AFTER the hazard columns merged in below,
+    # not before, since "N".."AH" in _apply_colour_conditional_formatting/the template's own
+    # formulas hardcode the hazard columns' position as starting right after the base
+    # columns. Re-attached via the original row index (preserved below through the merge)
+    # rather than positionally, so this stays correct even if the hazards merge ever
+    # duplicates a row (e.g. more than one hazard match for the same CAS).
+    tier_cols = _sorted_tier_contribution_cols(scenarios_df.columns)
+    if tier_cols:
+        tier_lookup = scenarios_df[tier_cols].copy()
+        c2c_df["_orig_row_idx"] = c2c_df.index
 
     cas_list = clean_cas_values(c2c_df["CAS"].tolist())
     hazards_df, missing_cas_df = extract_colour_assessment_C2C(cas_list, db_path)
@@ -2874,6 +3340,11 @@ def build_c2c_assessment_df(scenarios_df, db_path):
         print("CAS missing from COLOUR_ASSESSMENT_C2C:", missing_cas_df)
 
     c2c_df = c2c_df.merge(hazards_df, on="CAS", how="left")
+
+    if tier_cols:
+        for col in tier_cols:
+            c2c_df[col] = c2c_df["_orig_row_idx"].map(tier_lookup[col])
+        c2c_df.drop(columns=["_orig_row_idx"], inplace=True)
 
     # human-friendly column names for the saved excel
     rename_map = {
@@ -2886,6 +3357,7 @@ def build_c2c_assessment_df(scenarios_df, db_path):
         "min_contribution_hom_mat": "Minimal % of material in homogenous material",
         "max_contribution_hom_mat": "Maximal % of material in homogenous material",
     }
+    rename_map.update(_tier_contribution_rename_map(tier_cols))
     for col in c2c_df.columns:
         if col.startswith("C2C_assessment_"):
             rename_map[col] = col.replace("_", " ")
@@ -2964,7 +3436,7 @@ def save_c2c_assessment_workbook(c2c_df, output_path, template_path=C2C_ASSESSME
 
     template_headers = [cell.value for cell in ws[1] if cell.value is not None]
     df_headers = list(c2c_df.columns)
-    if template_headers != df_headers:
+    if df_headers[: len(template_headers)] != template_headers:
         print(
             "[WARNING] detailed_overview headers no longer match the template.\n"
             f"  template: {template_headers}\n"
@@ -2972,6 +3444,12 @@ def save_c2c_assessment_workbook(c2c_df, output_path, template_path=C2C_ASSESSME
             "The 'overview' / 'percentage_assessed' / 'risk_assessed' formulas read fixed "
             "columns and may now point at the wrong data - update the template."
         )
+    elif len(df_headers) > len(template_headers):
+        # Extra trailing columns beyond the template's own headers (e.g. the per-tier %
+        # tracking columns) - safe to write, since nothing reads past the template's own
+        # columns by fixed letter; the template just has no header cells for them yet.
+        for col_offset, header in enumerate(df_headers[len(template_headers):], start=len(template_headers) + 1):
+            ws.cell(row=1, column=col_offset, value=header)
 
     for row_offset, row in enumerate(c2c_df.itertuples(index=False), start=2):
         for col_offset, value in enumerate(row, start=1):
@@ -2990,6 +3468,92 @@ def save_c2c_assessment_workbook(c2c_df, output_path, template_path=C2C_ASSESSME
     wb.calculation.fullCalcOnLoad = True
 
     wb.save(output_path)
+
+
+### Mixture-rules assessment output, styled the same way as MAS_quick_C2C_assessment_static.py's
+### templated output (same colour highlighting/column styling convention) - but built from the
+### mixture-rules pipeline's OWN already-aggregated DataFrames (c2c_extremes_df / all_c2c_scenario_
+### results_df), which are per-HOMOGENEOUS-MATERIAL, not per-CAS like the quick_static output, so
+### this writes plain values into a fresh workbook rather than reusing that per-CAS template file.
+_MIXTURE_RULES_COLOUR_STYLES = {
+    "red": (PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"), Font(color="9C0006")),
+    "yellow": (PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"), Font(color="9C6500")),
+    "grey": (PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid"), Font(color="3B3B3B")),
+    "green": (PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"), Font(color="006100")),
+}
+
+
+def _mixture_rules_hazard_columns(df):
+    """Every hazard-rating column this pipeline produces (the 4 additive endpoint groups
+    plus the 13 Assessment C endpoints) - identified by the "C2C <label>" naming
+    convention shared by all of them, excluding their "<col>_scenario" companion columns
+    (plain text, not a colour) so conditional formatting is never applied to those."""
+    return [c for c in df.columns if c.startswith("C2C ") and not c.endswith("_scenario")]
+
+
+def _apply_mixture_rules_colour_formatting(ws, hazard_col_letters, last_row):
+    """Colour a cell if its text CONTAINS a hazard keyword (matches this pipeline's own
+    labels, e.g. "RED", "NOT FULL COMP...", "NOT ENOUGH INFO..." - the latter two don't
+    contain a colour keyword and so are intentionally left unstyled/plain, making them
+    visually distinct from a real RED/YELLOW/GREEN/GREY rating)."""
+    ws.conditional_formatting._cf_rules.clear()
+    for keyword, (fill, font) in _MIXTURE_RULES_COLOUR_STYLES.items():
+        for col in hazard_col_letters:
+            formula = f'ISNUMBER(SEARCH("{keyword}",{col}2))'
+            ws.conditional_formatting.add(f"{col}2:{col}{last_row}", FormulaRule(formula=[formula], fill=fill, font=font, stopIfTrue=False))
+
+
+def _style_mixture_rules_sheet(ws, last_col, last_data_row):
+    """Uniform column widths and a wrapped, taller header row, matching the visual
+    convention used by MAS_quick_C2C_assessment_static.py's own output sheets."""
+    UNIFORM_WIDTH = 26
+    for col in range(1, last_col + 1):
+        ws.column_dimensions[get_column_letter(col)].width = UNIFORM_WIDTH
+
+    header_alignment = Alignment(wrap_text=True, vertical="bottom")
+    data_alignment = Alignment(wrap_text=False)
+    ws.row_dimensions[1].height = 45
+    for col in range(1, last_col + 1):
+        ws.cell(row=1, column=col).alignment = header_alignment
+    for row in range(2, last_data_row + 1):
+        for col in range(1, last_col + 1):
+            ws.cell(row=row, column=col).alignment = data_alignment
+
+
+def _write_df_to_sheet(wb, sheet_name, df):
+    if sheet_name in wb.sheetnames:
+        del wb[sheet_name]
+    ws = wb.create_sheet(sheet_name)
+    for col_idx, col_name in enumerate(df.columns, start=1):
+        ws.cell(row=1, column=col_idx, value=col_name)
+    for row_offset, row in enumerate(df.itertuples(index=False), start=2):
+        for col_offset, value in enumerate(row, start=1):
+            ws.cell(row=row_offset, column=col_offset, value=None if pd.isna(value) else value)
+
+    hazard_cols = _mixture_rules_hazard_columns(df)
+    hazard_col_letters = [get_column_letter(df.columns.get_loc(c) + 1) for c in hazard_cols]
+    last_row = max(len(df) + 1, 2)
+    _apply_mixture_rules_colour_formatting(ws, hazard_col_letters, last_row)
+    _style_mixture_rules_sheet(ws, len(df.columns), last_row)
+    return ws
+
+
+def save_mixture_rules_assessment_output(c2c_extremes_df, all_c2c_scenario_results_df, output_path):
+    """
+    Save the mixture-rules assessment as an "overview" sheet (worst-case hazard rating per
+    homogeneous material across all scenarios - c2c_extremes_df) and a "detailed_overview"
+    sheet (every scenario's own per-homogeneous-material result - all_c2c_scenario_results_df),
+    both colour-highlighted the same way as MAS_quick_C2C_assessment_static.py's output, so
+    the two "flavours" of C2C assessment stay visually/structurally easy to cross-reference.
+    """
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    _write_df_to_sheet(wb, "overview", c2c_extremes_df)
+    _write_df_to_sheet(wb, "detailed_overview", all_c2c_scenario_results_df)
+
+    wb.save(output_path)
+
 
 #################################################################
 ### Calculating with mixture rules
@@ -3019,17 +3583,11 @@ def run_wint_C2C_mixture_rules():
     CAS_count, cas_list = count_CAS_unique(df, "CAS")
     print("Total unique CAS found: ", CAS_count)
     print("--------------------------------------------------------------")
-    toxicity_info_df, missing_cas_df = extract_info_from_DB(cas_list, db_path)
-    if not missing_cas_df.empty:
-        print("CAS missing from the DB", missing_cas_df)
-        print("To continue choose an Excel with toxicity info:")
-        toxicity_info_updated_with_excel_df = open_excel_file_toxicity()
-        CAS_in_excel = toxicity_info_updated_with_excel_df["CAS"].dropna().unique()
-        if Counter(CAS_in_excel) == Counter(cas_list):
-            toxicity_info_df = toxicity_info_updated_with_excel_df
-        else:
-            print("The toxicity info provided is not sufficient for the whole anlaysis, probably some C2C endpoints will not be computed.")
-    print("Proceeding with toxicity info.")
+    # Toxicity info now comes exclusively from the database - no Excel toxicity-info
+    # fallback. A material/endpoint combination with insufficient DB data is flagged
+    # explicitly (NOT_FULL_COMPOSITION_LABEL / NOT_ENOUGH_INFO_LABEL) rather than silently
+    # computed on partial data or backfilled from an Excel file.
+    print("Proceeding with toxicity info from the database only.")
     print("--------------------------------------------------------------")
     # identify alternatives & make scenarios
     print("Generating scenarios...")
@@ -3039,7 +3597,7 @@ def run_wint_C2C_mixture_rules():
     print("Scenarios generated. Total number of scenarios: ", len(scenarios))
     print("Calculating... This might take a while...")
     # analyse the dataset: summary for each CAS & product assessed
-    summary_df, perecentage_assessed_dict, C2C_mixture_results, all_c2c_scenario_results_df = analyse_the_dataset_with_mixture_rules(df, scenarios, toxicity_info_df)
+    summary_df, perecentage_assessed_dict, C2C_mixture_results, all_c2c_scenario_results_df = analyse_the_dataset_with_mixture_rules(df, scenarios, db_path)
     ### Saving:
     now = datetime.now()
     time = now.strftime("%Y%m%d")
@@ -3055,7 +3613,8 @@ def run_wint_C2C_mixture_rules():
 
     print("--------------------------------------------------------------")
     summary_df.to_excel(saving_summary, index=False)
-    C2C_mixture_results.to_excel(C2C_mixture_rules_saving, index=False)
+    save_mixture_rules_assessment_output(C2C_mixture_results, all_c2c_scenario_results_df, C2C_mixture_rules_saving)
+    print("Saved mixture rules assessment (overview + detailed_overview) to file: ", C2C_mixture_rules_saving)
     print("Saved summary per each CAS to file: ", saving_summary)
     save_percent_assessed(perecentage_assessed_dict, saving_percent_assessed)
     print("Saved percentage assessed to file: ", saving_percent_assessed)
@@ -3228,23 +3787,24 @@ def run_c2c_assessment_only():
     print("Calculations finished. Have a nice day!")
 
 ### Start the program:
-# ---- Ask user ----
-choice = ""
-while choice not in ["A", "B", "C"]:
-    choice = input("Which calculation do you want to run? \n"
-                   "A: just % assessed \n"
-                   "B: % assessed and mixture rules \n"
-                   "C: Smaller projects - C2C Assessment without mixture rules (all scenarios only) \n"
-                   "Type A, B or C").strip().upper()
-    if choice not in ["A", "B", "C"]:
-        print("Please type A, B or C.")
+if __name__ == "__main__":
+    # ---- Ask user ----
+    choice = ""
+    while choice not in ["A", "B", "C"]:
+        choice = input("Which calculation do you want to run? \n"
+                       "A: just % assessed \n"
+                       "B: % assessed and mixture rules \n"
+                       "C: Smaller projects - C2C Assessment without mixture rules (all scenarios only) \n"
+                       "Type A, B or C").strip().upper()
+        if choice not in ["A", "B", "C"]:
+            print("Please type A, B or C.")
 
-# ---- Execute ----
-if choice == "A":
-    result = run_with_percentage_assessed()
-elif choice == "B":
-    result = run_wint_C2C_mixture_rules()
-else:
-    result = run_c2c_assessment_only()
+    # ---- Execute ----
+    if choice == "A":
+        result = run_with_percentage_assessed()
+    elif choice == "B":
+        result = run_wint_C2C_mixture_rules()
+    else:
+        result = run_c2c_assessment_only()
 
-print(result)
+    print(result)

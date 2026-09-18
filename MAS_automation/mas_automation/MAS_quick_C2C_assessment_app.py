@@ -127,7 +127,7 @@ class PathRow(ttk.Frame):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Quick C2C Assessment")
+        self.title("C2C Screener")
         self.configure(bg=APP_BG)
         self.resizable(False, False)
 
@@ -141,12 +141,7 @@ class App(tk.Tk):
         outer = ttk.Frame(self, padding=16)
         outer.pack(fill="both", expand=True)
 
-        ttk.Label(outer, text="Quick C2C Assessment", font=("Helvetica", 16, "bold")).pack(anchor="w")
-        ttk.Label(
-            outer,
-            text="No mixture rules - pulls colour hazards from the DB, builds the assessment excel(s).",
-            foreground="#555",
-        ).pack(anchor="w", pady=(0, 12))
+        ttk.Label(outer, text="C2C Screener", font=("Helvetica", 16, "bold")).pack(anchor="w", pady=(0, 12))
 
         self.mas_row = PathRow(
             outer, "MAS excel:", "open_file", [("Excel files", "*.xlsx *.xls"), ("All files", "*.*")],

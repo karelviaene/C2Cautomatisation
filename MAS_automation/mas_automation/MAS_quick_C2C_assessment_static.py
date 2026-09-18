@@ -450,6 +450,15 @@ def calc_row_contribution(row, tier_level=10):
 
     min_val_hom_mat = row[min_percent_in_hom_mat]
     max_val_hom_mat = row[max_percent_in_hom_mat]
+
+    # Running % after each tier is folded in, keyed by tier number, so the caller can show
+    # the step-by-step trace (after % of hom mat -> after Tier 1 -> after Tier 2 -> ...) not
+    # just the final value. Tier 1's own entry is the same number as min/max_val_hom_mat /
+    # the starting min/max_val_prod above - included anyway so the trace is complete and
+    # every tier is addressable the same way. (Same fix as
+    # MAS_automation_with_mixture_rules_current.py's calc_row_contribution - keep in sync.)
+    tier_track = {1: (min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat)}
+
     # Loop over tiers > 1
     for i in range(2, tier_level + 1):
         material_col = col_mat.format(i=i)
@@ -461,9 +470,10 @@ def calc_row_contribution(row, tier_level=10):
             max_val_prod *= row.get(max_col, 1)
             min_val_hom_mat *= row.get(min_col, 1)
             max_val_hom_mat *= row.get(max_col, 1)
+            tier_track[i] = (min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat)
 
 
-    return min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat
+    return min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat, tier_track
 ### Whether a row's OWN alternative-group picks (ignoring coupling) match this scenario
 def _row_matches_alternative_choices(row, scenario, tier_level=10):
     for i in range(1, tier_level + 1):
@@ -523,13 +533,68 @@ def evaluate_row_activity(df, scenario, tier_level=10):
     df["status_reason"] = reasons
 
     return df
+### Derive a hom mat's weight-in-product from its Tier 1 materials' weights, when neither
+### the hom mat's own weight-in-product NOR its %-in-product were given directly. (Same fix
+### as MAS_automation_with_mixture_rules_current.py's calculate_hom_mat_weight_from_tier1 -
+### keep them in sync.)
+def calculate_hom_mat_weight_from_tier1(df):
+    """Some MAS files only give the Tier 1 material weight (min_weight_in_hom_mat /
+    max_weight_in_hom_mat) and never the hom mat's own weight-in-product or %-in-product.
+    In that case, derive the hom mat's weight-in-product by summing the Tier 1 weights of
+    its own ACTIVE rows for this scenario - so an alternative branch that was NOT chosen in
+    this scenario never contributes its weight. Must run after evaluate_row_activity (needs
+    "active") and before calculate_material_percentages_product, whose existing mass-based
+    %-of-product fallback then picks up the derived weight automatically.
+    Min and max are derived independently: if even one active row's Tier 1 weight is missing
+    for a given side (min or max), that side is left as NaN rather than silently summing only
+    the rows that DO have a value - understating a hom mat's true weight would be an unsafe,
+    non-conservative % of hom mat in product."""
+    df = df.copy()
+    needs_derivation = (
+        df[min_weight_in_product].isna()
+        & df[max_weight_in_product].isna()
+        & df[min_percent_in_product].isna()
+        & df[max_percent_in_product].isna()
+    )
+    only_active = df["active"] == True
+    candidates = df.loc[only_active & needs_derivation]
+    if candidates.empty:
+        return df
+
+    id_keys = [product, hom_mat]
+
+    def _sum_or_nan(s):
+        return np.nan if s.isna().any() or s.empty else s.sum()
+
+    grouped = candidates.groupby(id_keys)
+    min_sums = grouped[min_weight_in_hom_mat].apply(_sum_or_nan)
+    max_sums = grouped[max_weight_in_hom_mat].apply(_sum_or_nan)
+
+    df["key"] = list(zip(*(df[k] for k in id_keys)))
+    fill_mask = needs_derivation & only_active
+    df.loc[fill_mask, min_weight_in_product] = df.loc[fill_mask, "key"].map(min_sums)
+    df.loc[fill_mask, max_weight_in_product] = df.loc[fill_mask, "key"].map(max_sums)
+    df.drop(columns=["key"], inplace=True)
+    return df
 ### Calculate the % contribution per product
 def calculate_material_percentages_product(df):
     df = df.copy()
     df_mass_calc = df.copy()
-    keys = [product, min_weight_in_product, max_weight_in_product, hom_mat]
+    # Identity of "one homogeneous material in this product" is (product, hom_mat) alone.
+    # A hom mat's own weight-in-product is a HOM-MAT-LEVEL attribute repeated across every
+    # one of its child rows (one row per Tier 1 ingredient/CAS, or per active alternative).
+    # Deduplicating on a key that ALSO includes the weight columns (as before) breaks
+    # whenever those child rows don't carry an identical weight value - e.g. an alternative
+    # swap that legitimately changes the hom mat's declared total - two rows of the SAME
+    # hom mat then look like two DIFFERENT hom mats to drop_duplicates(), and its weight
+    # gets summed once per distinct value instead of once per hom mat, inflating the
+    # product-level total and skewing every %-of-product this fallback produces for that
+    # product. (Same fix as MAS_automation_with_mixture_rules_current.py's
+    # calculate_material_percentages_product - keep them in sync.)
+    id_keys = [product, hom_mat]
+    keys = id_keys + [min_weight_in_product, max_weight_in_product]
     only_active = df_mass_calc["active"] == True
-    df_mass_calc_unique = df.loc[only_active, keys].drop_duplicates()
+    df_mass_calc_unique = df.loc[only_active, keys].groupby(id_keys, as_index=False).first()
 
     def calculations_for_material_percentages_product(df):
         """  Calculate the percentage of material based on mass given (worst & best case scenarios)"""
@@ -550,8 +615,10 @@ def calculate_material_percentages_product(df):
     #calculate_material_percentages_product(df_mass_calc_unique)
     df_mass_calc_unique = calculations_for_material_percentages_product(df_mass_calc_unique)
     #
-    df_mass_calc_unique["key"] = list(zip(*(df_mass_calc_unique[k] for k in keys)))
-    df["key"] = list(zip(*(df[k] for k in keys)))
+    # Map the computed percentage back onto every row of that (product, hom_mat) BY
+    # IDENTITY only - not by each row's own (possibly inconsistent) weight value.
+    df_mass_calc_unique["key"] = list(zip(*(df_mass_calc_unique[k] for k in id_keys)))
+    df["key"] = list(zip(*(df[k] for k in id_keys)))
     #
     min_map = df_mass_calc_unique.set_index("key")[min_percent_in_product]
     max_map = df_mass_calc_unique.set_index("key")[max_percent_in_product]
@@ -564,9 +631,12 @@ def calculate_material_percentages_product(df):
 def calculate_material_percentages_hom_mat(df):
     df = df.copy()
     df_mass_calc = df.copy()
-    keys = [ hom_mat, min_weight_in_hom_mat, max_weight_in_hom_mat, col_mat_tier_1]
+    # Same fix as calculate_material_percentages_product, one tier down: identity of "one
+    # Tier 1 material within this hom mat" is (hom_mat, Tier 1 Material) alone.
+    id_keys = [hom_mat, col_mat_tier_1]
+    keys = id_keys + [min_weight_in_hom_mat, max_weight_in_hom_mat]
     only_active = df_mass_calc["active"] == True
-    df_mass_calc_unique = df.loc[only_active, keys].drop_duplicates()
+    df_mass_calc_unique = df.loc[only_active, keys].groupby(id_keys, as_index=False).first()
 
     def calculations_for_material_percentages_hom_mat(df):
         """  Calculate the percentage of material based on mass given (worst & best case scenarios)"""
@@ -587,8 +657,8 @@ def calculate_material_percentages_hom_mat(df):
     #calculate_material_percentages_product(df_mass_calc_unique)
     df_mass_calc_unique = calculations_for_material_percentages_hom_mat(df_mass_calc_unique)
 
-    df_mass_calc_unique["key"] = list(zip(*(df_mass_calc_unique[k] for k in keys)))
-    df["key"] = list(zip(*(df[k] for k in keys)))
+    df_mass_calc_unique["key"] = list(zip(*(df_mass_calc_unique[k] for k in id_keys)))
+    df["key"] = list(zip(*(df[k] for k in id_keys)))
 
     min_map = df_mass_calc_unique.set_index("key")[min_percent_in_hom_mat]
     max_map = df_mass_calc_unique.set_index("key")[max_percent_in_hom_mat]
@@ -598,29 +668,47 @@ def calculate_material_percentages_hom_mat(df):
     df.drop(["key"], axis=1, inplace=True)
     return df
 ### calculating the % in product and hom mat
-def calculate_row_contributions(df):
+def calculate_row_contributions(df, tier_level=None):
     df = df.copy()
+    # Auto-detect this dataset's own deepest tier (instead of a fixed hardcoded depth) so the
+    # per-tier tracking columns added below only go as far as tiers actually present in the
+    # file. (Same fix as MAS_automation_with_mixture_rules_current.py's
+    # calculate_row_contributions - keep in sync.)
+    if tier_level is None:
+        tier_level = get_highest_tier(df, col_mat)
 
     min_val_prod_contibutions = []
     max_val_prod_contibutions = []
     min_val_hom_mat_contibutions = []
     max_val_hom_mat_contibutions = []
+    tier_tracks = []
     for _, row in df.iterrows():
         if row.get("active") is True:
-            min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat = calc_row_contribution(row)
+            min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat, tier_track = calc_row_contribution(row, tier_level=tier_level)
         else:
-            min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat = np.nan, np.nan, np.nan, np.nan
+            min_val_prod, max_val_prod, min_val_hom_mat, max_val_hom_mat, tier_track = np.nan, np.nan, np.nan, np.nan, {}
 
         min_val_prod_contibutions.append(min_val_prod)
         max_val_prod_contibutions.append(max_val_prod)
         min_val_hom_mat_contibutions.append(min_val_hom_mat)
         max_val_hom_mat_contibutions.append(max_val_hom_mat)
+        tier_tracks.append(tier_track)
 
 
     df["min_contribution_prod"] = min_val_prod_contibutions
     df["max_contribution_prod"] = max_val_prod_contibutions
     df["min_contribution_hom_mat"] = min_val_hom_mat_contibutions
     df["max_contribution_hom_mat"] = max_val_hom_mat_contibutions
+
+    # Per-tier running % trace ("after % of hom mat, then Tier 1, then Tier 2, ..."), so the
+    # cumulative calculation is auditable step by step, not just visible as the final result.
+    # A tier column stays NaN for rows that don't go that deep (or aren't active).
+    _missing = (np.nan, np.nan, np.nan, np.nan)
+    for i in range(1, tier_level + 1):
+        df[f"min_contribution_prod_t{i}"] = [t.get(i, _missing)[0] for t in tier_tracks]
+        df[f"max_contribution_prod_t{i}"] = [t.get(i, _missing)[1] for t in tier_tracks]
+        df[f"min_contribution_hom_mat_t{i}"] = [t.get(i, _missing)[2] for t in tier_tracks]
+        df[f"max_contribution_hom_mat_t{i}"] = [t.get(i, _missing)[3] for t in tier_tracks]
 
     calc_df = df.copy()
     return calc_df
@@ -634,6 +722,7 @@ def build_selected_scenarios_df(df, scenarios, selected_scenario_ids):
             continue
 
         scenario_df = evaluate_row_activity(df, scenario)
+        scenario_df = calculate_hom_mat_weight_from_tier1(scenario_df)
         product_percent_df = calculate_material_percentages_product(scenario_df)
         hom_mat_percent_df = calculate_material_percentages_hom_mat(product_percent_df)
         scenario_evaluated = calculate_row_contributions(hom_mat_percent_df).copy()
@@ -765,6 +854,75 @@ def extract_colour_assessment_C2C(cas_list, db_path):
 
     return df, df_missing
 
+### Pull the chemical-class flags from table CHEMICALCLASS for the given CAS numbers, into
+### one df with a CAS column (renamed from "ref") and the 3 flags detailed_overview shows.
+CHEMICAL_CLASS_COLS = ["Harmonized", "Organohalogen", "Toxic metal", "SVHC"]
+
+
+def extract_chemical_class(cas_list, db_path):
+    cas_list = clean_cas_values(cas_list)
+
+    if not cas_list:
+        return pd.DataFrame(columns=["CAS"] + CHEMICAL_CLASS_COLS)
+
+    try:
+        conn = sqlite3.connect(db_path)
+    except Exception as e:
+        print(f"[ERROR] Cannot connect to DB: {e}")
+        return pd.DataFrame(columns=["CAS"] + CHEMICAL_CLASS_COLS)
+
+    selected_cols_sql = ", ".join([f'"{c}"' for c in ["ref"] + CHEMICAL_CLASS_COLS])
+    placeholders = ", ".join(["?"] * len(cas_list))
+
+    try:
+        query = f'''
+        SELECT {selected_cols_sql}
+        FROM CHEMICALCLASS
+        WHERE ref IN ({placeholders})
+        '''
+        df = pd.read_sql_query(query, conn, params=tuple(cas_list))
+    except Exception as e:
+        print(f"[ERROR] Cannot query CHEMICALCLASS: {e}")
+        conn.close()
+        return pd.DataFrame(columns=["CAS"] + CHEMICAL_CLASS_COLS)
+
+    conn.close()
+
+    df = df.rename(columns={"ref": "CAS"})
+    return df
+
+### Every per-tier running-% column calculate_row_contributions() may have added, in a
+### stable (tier ascending, prod before hom_mat, min before max) order - so the detailed
+### overview always lists them the same way regardless of dict/column ordering. (Same fix as
+### MAS_automation_with_mixture_rules_current.py's _sorted_tier_contribution_cols /
+### _tier_contribution_rename_map - keep in sync.)
+_TIER_CONTRIBUTION_PATTERN = re.compile(r"^(min|max)_contribution_(prod|hom_mat)_t(\d+)$")
+
+
+def _sorted_tier_contribution_cols(columns):
+    def sort_key(col):
+        m = _TIER_CONTRIBUTION_PATTERN.match(col)
+        minmax, kind, tier = m.group(1), m.group(2), int(m.group(3))
+        return (tier, kind != "prod", minmax != "min")
+
+    return sorted((c for c in columns if _TIER_CONTRIBUTION_PATTERN.match(c)), key=sort_key)
+
+
+def _tier_contribution_rename_map(tier_cols):
+    labels = {
+        ("min", "prod"): "Minimal % of material in product after Tier {t}",
+        ("max", "prod"): "Maximal % of material in product after Tier {t}",
+        ("min", "hom_mat"): "Minimal % of material in homogenous material after Tier {t}",
+        ("max", "hom_mat"): "Maximal % of material in homogenous material after Tier {t}",
+    }
+    rename_map = {}
+    for col in tier_cols:
+        m = _TIER_CONTRIBUTION_PATTERN.match(col)
+        minmax, kind, tier = m.group(1), m.group(2), m.group(3)
+        rename_map[col] = labels[(minmax, kind)].format(t=tier)
+    return rename_map
+
+
 ### Build a C2C assessment df (product/material/contribution cols + DB hazards) from a scenarios df
 def build_c2c_assessment_df(scenarios_df, db_path):
     """
@@ -786,21 +944,45 @@ def build_c2c_assessment_df(scenarios_df, db_path):
         "max_contribution_prod",
         "min_contribution_hom_mat",
         "max_contribution_hom_mat",
+        "final_material",
         "CAS",
     ]
     base_cols = [c for c in base_cols if c in scenarios_df.columns]
     c2c_df = scenarios_df[base_cols].copy()
+    # Keep the per-tier running-% columns (if calculate_row_contributions() produced them)
+    # OUT of base_cols on purpose - they must land AFTER the hazard columns merged in below,
+    # not before, since the hazard-column letters in _apply_colour_conditional_formatting
+    # are computed from these exact column positions (see save_c2c_assessment_workbook_static /
+    # save_detailed_overview_only). Re-attached via the original row index (preserved below
+    # through the merges) rather than positionally, so this stays correct even if a merge
+    # ever duplicates a row (e.g. more than one hazard match for the same CAS).
+    tier_cols = _sorted_tier_contribution_cols(scenarios_df.columns)
+    if tier_cols:
+        tier_lookup = scenarios_df[tier_cols].copy()
+        c2c_df["_orig_row_idx"] = c2c_df.index
 
     cas_list = clean_cas_values(c2c_df["CAS"].tolist())
+    chemical_class_df = extract_chemical_class(cas_list, db_path)
     hazards_df, missing_cas_df = extract_colour_assessment_C2C(cas_list, db_path)
     # missing_cas_df is no longer printed here - it's written into the overview
     # sheet's "Flagged issues:" column instead, see build_overview_df()
 
+    # Chemical class flags (Harmonized/Organohalogen/Toxic metal) merged in BEFORE the
+    # hazard colours, so they land right after CAS/Final Material and before the hazard
+    # block - matches the requested "final material | CAS | Harmonized | Organohalogen |
+    # Toxic metal | ..." layout.
+    c2c_df = c2c_df.merge(chemical_class_df, on="CAS", how="left")
     c2c_df = c2c_df.merge(hazards_df, on="CAS", how="left")
+
+    if tier_cols:
+        for col in tier_cols:
+            c2c_df[col] = c2c_df["_orig_row_idx"].map(tier_lookup[col])
+        c2c_df.drop(columns=["_orig_row_idx"], inplace=True)
 
     # human-friendly column names for the saved excel
     rename_map = {
         "final_material_map": "Final Material Map",
+        "final_material": "Final Material",
         "scenario_id": "Scenario ID",
         "active": "Scenario Status",
         "status_reason": "Scenario Status Reason",
@@ -809,6 +991,7 @@ def build_c2c_assessment_df(scenarios_df, db_path):
         "min_contribution_hom_mat": "Minimal % of material in homogenous material",
         "max_contribution_hom_mat": "Maximal % of material in homogenous material",
     }
+    rename_map.update(_tier_contribution_rename_map(tier_cols))
     for col in c2c_df.columns:
         if col.startswith("C2C_assessment_"):
             rename_map[col] = col.replace("_", " ")
@@ -871,6 +1054,123 @@ WITHOUT_MIXTURE_RULES_COLS = {
 COLOUR_RANK = {"GREEN": 1, "YELLOW": 2, "GREY": 3, "RED": 4}
 RANK_TO_COLOUR = {v: k for k, v in COLOUR_RANK.items()}
 
+########################################################################
+### "Overall C2C Material Health Rating" - worst case across the endpoints below, with
+### 3 exceptions to the plain worst-case rule (see _overall_c2c_rating's docstring).
+########################################################################
+
+# Plain worst-case: GREY is a real, competing state for these endpoints.
+OVERALL_RATING_STANDARD_ENDPOINTS = [
+    "C2C assessment mutagenicity genotoxicity",
+    "C2C assessment oral toxicity",
+    "C2C assessment inhalative toxicity",
+    "C2C assessment dermal toxicity",
+    "C2C assessment skin eye respiratory corrosion irritation",
+    "C2C assessment sensitization",
+    "C2C assessment combined aquatic risk flag",
+]
+
+# Worst-case among RED/YELLOW/GREEN only - GREY never competes (never makes the overall
+# result GREY), it's simply dropped from consideration for these endpoints.
+OVERALL_RATING_GREY_IGNORED_ENDPOINTS = [
+    "C2C assessment carcinogenicity",
+    "C2C assessment disruption of endocrine system",
+    "C2C assessment neurotoxicity",
+    "C2C assessment terrestrial toxicity",
+    "C2C assessment other species toxicity",
+    "C2C assessment climatic relevance ozone depletion potential",
+]
+
+# Coupled pair - resolved to a single effective colour (see _resolve_coupled_pair) before
+# competing in the overall worst-case comparison.
+OVERALL_RATING_COUPLED_ENDPOINTS = (
+    "C2C assessment reproductive toxicity",
+    "C2C assessment development toxicity",
+)
+
+# Never influence the overall rating at all.
+OVERALL_RATING_EXCLUDED_ENDPOINTS = [
+    "C2C assessment fish toxicity",
+    "C2C assessment invertebrate toxicity",
+    "C2C assessment algae toxicity",
+    "C2C assessment persistence",
+    "C2C assessment bioaccumulation",
+    "C2C assessment combined pb risk flag",
+]
+
+COL_OVERALL_RATING = "Overall C2C Material Health Rating"
+COL_OVERALL_RATING_COMMENT = "Overall C2C Material Health Rating Comment"
+
+
+def _resolve_coupled_pair(reproductive_colour, development_colour):
+    """Reproductive + development toxicity are coupled: any RED wins outright; two GREYs
+    stay GREY; a GREY paired with a real colour defers entirely to that real colour (grey
+    never drags a green/yellow result down); two real (non-grey, non-red) colours take
+    their own worst case. Returns (resolved_colour, [endpoint names that actually carry
+    that resolved colour themselves] - used to name the right one(s) in the comment)."""
+    pair = {
+        "C2C assessment reproductive toxicity": reproductive_colour,
+        "C2C assessment development toxicity": development_colour,
+    }
+    if reproductive_colour == "RED" or development_colour == "RED":
+        resolved = "RED"
+    elif reproductive_colour == "GREY" and development_colour == "GREY":
+        resolved = "GREY"
+    elif reproductive_colour == "GREY" or development_colour == "GREY":
+        resolved = development_colour if reproductive_colour == "GREY" else reproductive_colour
+    else:
+        resolved = "YELLOW" if "YELLOW" in (reproductive_colour, development_colour) else "GREEN"
+    contributing = [name for name, colour in pair.items() if colour == resolved]
+    return resolved, contributing
+
+
+def _overall_c2c_rating(colours_by_endpoint):
+    """colours_by_endpoint: dict of {hazard column name -> raw worst-case colour
+    (GREEN/YELLOW/GREY/RED)} for one (Product, Hom Mat), e.g. straight from the raw colours
+    computed in build_overview_df's hazard loop (before _display_colour formatting).
+
+    Combines them into one overall rating using plain worst-case (GREEN < YELLOW < GREY <
+    RED), with 3 exceptions:
+    1. OVERALL_RATING_STANDARD_ENDPOINTS: plain worst-case, GREY competes normally.
+    2. OVERALL_RATING_GREY_IGNORED_ENDPOINTS: GREY is dropped (never makes the overall
+       result GREY on its own) - only RED/YELLOW/GREEN from these compete.
+    3. OVERALL_RATING_COUPLED_ENDPOINTS (reproductive+development): resolved to one
+       effective colour first (see _resolve_coupled_pair), then that single colour competes.
+    OVERALL_RATING_EXCLUDED_ENDPOINTS never enter the comparison at all.
+
+    Returns (overall_colour, comment_text) - the comment names every contributing endpoint
+    tied at the worst rank, e.g. "Overall assessment is red due to carcinogenicity and
+    mutagenicity genotoxicity."."""
+    contributions = {}
+
+    for endpoint in OVERALL_RATING_STANDARD_ENDPOINTS:
+        contributions[endpoint] = colours_by_endpoint.get(endpoint)
+
+    for endpoint in OVERALL_RATING_GREY_IGNORED_ENDPOINTS:
+        colour = colours_by_endpoint.get(endpoint)
+        if colour != "GREY":
+            contributions[endpoint] = colour
+
+    reproductive = colours_by_endpoint.get("C2C assessment reproductive toxicity")
+    development = colours_by_endpoint.get("C2C assessment development toxicity")
+    resolved_pair, pair_contributors = _resolve_coupled_pair(reproductive, development)
+    for endpoint in pair_contributors:
+        contributions[endpoint] = resolved_pair
+
+    valid = {ep: c for ep, c in contributions.items() if c in COLOUR_RANK}
+    if not valid:
+        return "GREY", "No data available to determine the overall rating."
+
+    worst_rank = max(COLOUR_RANK[c] for c in valid.values())
+    worst_colour = RANK_TO_COLOUR[worst_rank]
+    causing = sorted(ep.replace("C2C assessment ", "") for ep, c in valid.items() if COLOUR_RANK[c] == worst_rank)
+
+    if worst_colour == "GREEN":
+        comment = "Overall assessment is green - no endpoint indicates a higher hazard."
+    else:
+        comment = f"Overall assessment is {worst_colour.lower()} due to " + " and ".join(causing) + "."
+    return worst_colour, comment
+
 # detailed_overview column names (post build_c2c_assessment_df rename)
 COL_PRODUCT = product
 COL_HOM_MAT = hom_mat
@@ -918,7 +1218,72 @@ def _pct_assessed_by_group(active_df, group_cols, min_col, max_col, group_index)
     sum_max = not_assessed.groupby(group_cols, sort=False)[max_col].sum()
     sum_min = sum_min.reindex(group_index, fill_value=0)
     sum_max = sum_max.reindex(group_index, fill_value=0)
-    return pd.concat([1 - sum_min, 1 - sum_max], axis=1).min(axis=1)
+    result = pd.concat([1 - sum_min, 1 - sum_max], axis=1).min(axis=1)
+    # A wholly-not-assessed group's own contributions are computed by normalising against
+    # each other (e.g. two alternative branches splitting a homogeneous material 44%/56%),
+    # so they mathematically sum to exactly 1.0 - but double-precision division/summation
+    # leaves a machine-epsilon-scale residual (e.g. 2.22e-16) instead of an exact 0, which
+    # would otherwise display as a misleading "2.22E-16" rather than a clean 0%. Round away
+    # noise far finer than any % assessed figure is ever reported to; a genuine >100%-
+    # composition data issue would still show up as a real, well-above-epsilon negative
+    # value, so this rounding cannot hide an actual data problem.
+    return result.round(10)
+
+
+# CHEMICALCLASS columns to surface a worst-case "Contains X?" flag for in risk_assessed and
+# overview, and the reader-facing label for each.
+CHEMICAL_CLASS_RISK_FLAGS = {
+    "Organohalogen": "Contains organohalogens",
+    "Toxic metal": "Contains toxic metals",
+    "SVHC": "SVHC",
+}
+
+# A blank spacer column name (written as a genuinely blank header/cell, not the text "") -
+# used once in overview's right block, between the new record-keeping/rating/chemical-class
+# columns and the resumed hazard-rating block.
+_OVERVIEW_SPACER_COL = ""
+NOT_SUFFICIENT_DATA_LABEL = "manual assessment needed"
+
+
+def _classify_chemical_class_value(value):
+    """Maps a raw CHEMICALCLASS free-text value to YES/NO/NO_DATA. Exact 'No' (any case) is
+    NO; blank/None/'?' is NO_DATA (missing or uncertain); anything else (e.g. 'Highly
+    halogenated', 'Antimony Compounds', 'Cl bound to N') is YES - those are annotations of
+    WHY the substance is in that class, not a plain flag, so reading them as anything other
+    than YES would silently hide a real, described hazard."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "NO_DATA"
+    text = str(value).strip()
+    if text == "" or text == "?":
+        return "NO_DATA"
+    if text.lower() == "no":
+        return "NO"
+    return "YES"
+
+
+def _worst_chemical_class_by_group(active_df, group_cols, chemical_col, group_index):
+    """Per group (Product + Hom Mat + Scenario ID), the worst case across every active
+    CAS's chemical-class flag: any CAS classified YES wins outright ("Yes (CAS: ...)",
+    naming every CAS that was YES); failing that, any CAS with missing/uncertain data means
+    the group can't be cleared (NOT_SUFFICIENT_DATA_LABEL); only when every active CAS is
+    explicitly "No" does the group read "No". A group with no active rows at all (or not
+    present in active_df) defaults to NOT_SUFFICIENT_DATA_LABEL too, never a silent "No"."""
+    tmp = active_df[list(group_cols) + [chemical_col, COL_CAS]].copy()
+    tmp["_class"] = tmp[chemical_col].apply(_classify_chemical_class_value)
+
+    def _worst(grp):
+        yes_cas = sorted(grp.loc[grp["_class"] == "YES", COL_CAS].dropna().astype(str).unique().tolist())
+        if yes_cas:
+            return f"Yes (CAS: {', '.join(yes_cas)})"
+        if (grp["_class"] == "NO_DATA").any():
+            return NOT_SUFFICIENT_DATA_LABEL
+        return "No"
+
+    if tmp.empty:
+        result = pd.Series(dtype=object)
+    else:
+        result = tmp.groupby(list(group_cols), sort=False)[["_class", COL_CAS]].apply(_worst)
+    return result.reindex(group_index, fill_value=NOT_SUFFICIENT_DATA_LABEL)
 
 
 def _worst_colour_by_group(active_df, group_cols, hazard_col, group_index, with_scenarios=False):
@@ -984,8 +1349,13 @@ def _build_flagged_issues_by_product(active_df, products_index, missing_cas_df):
             )
         else:
             pct_flags.append(PCT_ASSESSED_FLAG_OK)
+        # Non-CAS placeholder material names (e.g. "recycled", "wood", "not assessed") are
+        # already excluded upstream by clean_cas_values()/is_valid_cas_number() - they're
+        # never queried against the DB at all, so they never end up in missing_cas_set and
+        # never reach this point. An empty missing_here here therefore genuinely means "no
+        # real CAS is missing from the hazard DB", i.e. OK - not just "nothing to report".
         missing_here = cas_by_product.get(prod, [])
-        cas_flags.append(", ".join(missing_here))
+        cas_flags.append(", ".join(missing_here) if missing_here else PCT_ASSESSED_FLAG_OK)
     return pct_flags, cas_flags
 
 
@@ -1024,12 +1394,55 @@ def build_overview_df(detailed_df, missing_cas_df=None):
     right_df = pd.DataFrame(index=idx_ph).reset_index()
     right_df.columns = ["Product", "Homogenous Material"]
 
+    # Min/Max % Homogenous material in Product, across ALL scenarios (record-keeping only,
+    # like risk_assessed's own MINIFS/MAXIFS, one level coarser here since overview's right
+    # block is already per Product+Hom Mat, not per scenario).
+    grp_all_ph = detailed_df.groupby([COL_PRODUCT, COL_HOM_MAT], sort=False)
+    min_pct_hm = grp_all_ph[COL_MIN_PCT_HOMMAT_IN_PROD].min().reindex(idx_ph)
+    max_pct_hm = grp_all_ph[COL_MAX_PCT_HOMMAT_IN_PROD].max().reindex(idx_ph)
+
+    hom_mat_values = right_df.pop("Homogenous Material").values
+    right_df.insert(1, "Min % Homogenous material in Product", min_pct_hm.values)
+    right_df.insert(2, "Max % Homogenous material in Product", max_pct_hm.values)
+    right_df.insert(3, "Homogenous Material", hom_mat_values)
+    # Filled in after the hazard loop below (needs every endpoint's raw worst-case colour
+    # first) - inserted here so the COLUMN ORDER is right regardless.
+    right_df.insert(4, COL_OVERALL_RATING, None)
+    right_df.insert(5, COL_OVERALL_RATING_COMMENT, None)
+
+    # Contains organohalogens / Contains toxic metals / SVHC - worst case across every
+    # active CAS for this (Product, Hom Mat), across ALL its scenarios (i.e. "if multiple
+    # have yes from different hom mat scenarios" all still surface here, since this pools
+    # every scenario's active rows before picking the worst case).
+    insert_at = 6
+    for chemical_col, label in CHEMICAL_CLASS_RISK_FLAGS.items():
+        if chemical_col not in detailed_df.columns:
+            continue
+        flags = _worst_chemical_class_by_group(active_df, [COL_PRODUCT, COL_HOM_MAT], chemical_col, idx_ph)
+        right_df.insert(insert_at, label, flags.values)
+        insert_at += 1
+
+    # Blank spacer before the hazard-rating block resumes (unchanged from before).
+    right_df.insert(insert_at, _OVERVIEW_SPACER_COL, "")
+
+    raw_colours_by_hazard = {}
     for hazard_col, suffix in zip(HAZARD_COLS_READABLE, SCENARIO_ID_SUFFIXES):
         colours, scenario_lists = _worst_colour_by_group(
             active_df, [COL_PRODUCT, COL_HOM_MAT], hazard_col, idx_ph, with_scenarios=True
         )
+        raw_colours_by_hazard[hazard_col] = colours.values
         right_df[hazard_col] = [_display_colour(hazard_col, c) for c in colours.values]
         right_df[f"Scenario ID_{suffix}"] = scenario_lists.values
+
+    overall_ratings = []
+    overall_comments = []
+    for i in range(len(idx_ph)):
+        colours_here = {hc: raw_colours_by_hazard[hc][i] for hc in HAZARD_COLS_READABLE}
+        rating, comment = _overall_c2c_rating(colours_here)
+        overall_ratings.append(rating)
+        overall_comments.append(comment)
+    right_df[COL_OVERALL_RATING] = overall_ratings
+    right_df[COL_OVERALL_RATING_COMMENT] = overall_comments
 
     return left_df, right_df
 
@@ -1072,6 +1485,18 @@ def build_risk_assessed_df(detailed_df):
     df.insert(1, "Min % Homogenous material in Product", min_pct.values)
     df.insert(2, "Max % Homogenous material in Product", max_pct.values)
 
+    # "Contains organohalogens" / "Contains toxic metals" / "SVHC" - worst case across every
+    # active CAS in the group, right after "Scenario ID" and before the hazard colours.
+    insert_at = df.columns.get_loc("Scenario ID") + 1
+    for chemical_col, label in CHEMICAL_CLASS_RISK_FLAGS.items():
+        if chemical_col not in detailed_df.columns:
+            continue
+        flags = _worst_chemical_class_by_group(
+            active_df, [COL_PRODUCT, COL_HOM_MAT, COL_SCENARIO_ID], chemical_col, idx_phs
+        )
+        df.insert(insert_at, label, flags.values)
+        insert_at += 1
+
     for hazard_col in HAZARD_COLS_READABLE:
         colours, _ = _worst_colour_by_group(
             active_df, [COL_PRODUCT, COL_HOM_MAT, COL_SCENARIO_ID], hazard_col, idx_phs, with_scenarios=False
@@ -1087,12 +1512,17 @@ def _clear_sheet_rows(ws):
         ws.delete_rows(2, ws.max_row - 1)
 
 
-def _write_df_to_sheet_by_header(ws, df, start_col=1, end_col=None):
+def _write_df_to_sheet_by_header(ws, df, start_col=1, end_col=None, allow_new_columns=False):
     """Write df starting at row 2, matching columns by the sheet's row-1 header text (leaves unmapped/blank spacer columns untouched).
     Does NOT clear existing rows first - call _clear_sheet_rows(ws) once before writing one or more dataframes to the same sheet.
     "overview" and "percentage_assessed" reuse the same header text ("Product", "Scenario ID", "% assessed") for both
     their left and right blocks, so header matching MUST be scoped to that block's column range (start_col/end_col,
-    1-indexed, inclusive) - otherwise a plain header->column dict collapses to just the last matching column."""
+    1-indexed, inclusive) - otherwise a plain header->column dict collapses to just the last matching column.
+    allow_new_columns=True appends a header cell (past end_col) for any df column the template
+    doesn't already have - used for detailed_overview's per-tier % tracking columns, which the
+    template has no fixed cells for. Never enable this for overview/percentage_assessed/
+    risk_assessed: those reuse header text across scoped blocks on the SAME row 1, and a
+    genuinely unmapped column there is a bug to see as dropped data, not silently append."""
     if end_col is None:
         end_col = ws.max_column
     header_to_col = {
@@ -1100,6 +1530,14 @@ def _write_df_to_sheet_by_header(ws, df, start_col=1, end_col=None):
         for cell in ws[1]
         if cell.value is not None and start_col <= cell.column <= end_col
     }
+
+    if allow_new_columns:
+        next_col = end_col + 1
+        for header in df.columns:
+            if header not in header_to_col:
+                ws.cell(row=1, column=next_col, value=header)
+                header_to_col[header] = next_col
+                next_col += 1
 
     for row_offset, row in enumerate(df.itertuples(index=False), start=2):
         row_dict = dict(zip(df.columns, row))
@@ -1110,6 +1548,31 @@ def _write_df_to_sheet_by_header(ws, df, start_col=1, end_col=None):
             if value is None or (isinstance(value, float) and pd.isna(value)):
                 value = None
             ws.cell(row=row_offset, column=col_idx, value=value)
+
+
+def _write_df_to_sheet_positional(ws, df, start_col=1):
+    """Write df's own headers (row 1) and data (from row 2), purely by column position,
+    starting at start_col - ignores whatever header text the sheet already has. Used for
+    "detailed_overview"/"risk_assessed" (start_col=1) and "overview"'s right block
+    (start_col=8, alongside the left block's own header-matched write): nothing downstream
+    reads these sheets' cells back (build_overview_df/build_percentage_assessed_df/
+    build_risk_assessed_df all work straight off the in-memory dataframe), so their column
+    order is free to follow the dataframe's own order instead of the shared template's
+    fixed layout. A "" column name (the spacer between the new columns and the resumed
+    hazard block) is written as a genuinely blank header cell, not the literal text "".
+    """
+    # openpyxl's ws.cell(row, col, value=...) treats value=None as "leave whatever was
+    # already there" (None is its "not provided" sentinel), NOT "clear this cell" - so a
+    # genuinely blank header (the spacer column) written that way would silently leave the
+    # template's stale pre-existing text in place. Set .value directly instead, which does
+    # clear it.
+    for col_idx, col_name in enumerate(df.columns, start=start_col):
+        ws.cell(row=1, column=col_idx).value = col_name or None
+    for row_offset, row in enumerate(df.itertuples(index=False), start=2):
+        for col_offset, value in enumerate(row, start=start_col):
+            if value is None or value == "" or (isinstance(value, float) and pd.isna(value)):
+                value = None
+            ws.cell(row=row_offset, column=col_offset).value = value
 
 
 _COLOUR_STYLES = {
@@ -1130,16 +1593,18 @@ def _apply_colour_conditional_formatting(ws, first_col_letter, last_col_letter, 
         ws.conditional_formatting.add(cell_range, FormulaRule(formula=[formula], fill=fill, font=font, stopIfTrue=False))
 
 
-def _style_overview_sheet(ws, last_col, last_data_row):
+def _style_overview_sheet(ws, last_col, last_data_row, extra_spacer_cols=None):
     """
     Uniform column widths (so nothing looks randomly wider/narrower), header row
     text-wrapped (so long headers don't force a huge column width), data rows NOT
-    wrapped, and the spacer columns (C and G) kept narrow so they read as clean
+    wrapped, and the spacer columns (C and G, plus any extra_spacer_cols the caller
+    passes - e.g. the blank column separating the new record-keeping/rating/chemical-class
+    columns from the resumed hazard-rating block) kept narrow so they read as clean
     separators instead of swallowing overflow text from the column before them.
     """
     UNIFORM_WIDTH = 22
     SPACER_WIDTH = 3
-    SPACER_COLS = {3, 7}
+    SPACER_COLS = {3, 7} | set(extra_spacer_cols or ())
 
     for col in range(1, last_col + 1):
         letter = get_column_letter(col)
@@ -1153,6 +1618,18 @@ def _style_overview_sheet(ws, last_col, last_data_row):
     for row in range(2, last_data_row + 1):
         for col in range(1, last_col + 1):
             ws.cell(row=row, column=col).alignment = data_alignment
+
+
+def _hazard_col_range(df):
+    """First/last column letters of the 21-column hazard block within a df built from
+    build_c2c_assessment_df() (detailed_overview) or build_risk_assessed_df() (risk_assessed)
+    - computed from the actual column positions (rather than a hardcoded "N".."AH" or
+    "F".."Z") so inserting new non-hazard columns (Final Material / CAS / chemical class
+    flags) never silently colour-formats the wrong columns."""
+    hazard_cols = [c for c in df.columns if c.startswith("C2C assessment ")]
+    first_idx = df.columns.get_loc(hazard_cols[0])
+    last_idx = df.columns.get_loc(hazard_cols[-1])
+    return get_column_letter(first_idx + 1), get_column_letter(last_idx + 1)
 
 
 def _apply_colour_conditional_formatting_cols(ws, col_letters, last_row):
@@ -1197,20 +1674,15 @@ def save_c2c_assessment_workbook_static(
     wb = openpyxl.load_workbook(output_path)
 
     ws_detail = wb["detailed_overview"]
-    template_headers = [cell.value for cell in ws_detail[1] if cell.value is not None]
-    df_headers = list(c2c_df.columns)
-    if template_headers != df_headers:
-        print(
-            "[WARNING] detailed_overview headers no longer match the template.\n"
-            f"  template: {template_headers}\n"
-            f"  data:     {df_headers}\n"
-            "The static overview/percentage_assessed/risk_assessed builders key off these "
-            "exact column names - update them (and/or the template) together."
-        )
-
     if write_detailed:
         _clear_sheet_rows(ws_detail)
-        _write_df_to_sheet_by_header(ws_detail, c2c_df)
+        # Positional, not header-matched: detailed_overview's own cells are never read back
+        # by anything downstream (build_overview_df/build_percentage_assessed_df/
+        # build_risk_assessed_df all work straight off the in-memory c2c_df), so its column
+        # order is free to follow c2c_df's own order - which now has Final Material/CAS/
+        # chemical class columns positioned before the hazard block, not matching the
+        # template's original fixed A-M-then-hazards layout.
+        _write_df_to_sheet_positional(ws_detail, c2c_df)
     else:
         del wb["detailed_overview"]
         ws_detail = None
@@ -1232,12 +1704,14 @@ def save_c2c_assessment_workbook_static(
     risk_df = build_risk_assessed_df(c2c_df)
 
     # "overview": left block = cols A-G (1-7, incl. the 2 new flag cols, the new spacer,
-    # Product/% assessed/Scenario ID, and the original spacer), right block = cols H-AY
-    # (8-51) - both reuse header text like "Product"/"Scenario ID", so each write must
-    # stay within its own range
+    # Product/% assessed/Scenario ID, and the original spacer) - unchanged, so still
+    # header-matched against the template. Right block starts at col H (8) but its own
+    # column order no longer matches the template (Min/Max %, Overall Rating + Comment,
+    # chemical class flags, and a spacer now come before the resumed hazard-rating block),
+    # so it's written positionally instead, like detailed_overview/risk_assessed.
     _clear_sheet_rows(ws_overview)
     _write_df_to_sheet_by_header(ws_overview, overview_left, start_col=1, end_col=7)
-    _write_df_to_sheet_by_header(ws_overview, overview_right, start_col=8, end_col=51)
+    _write_df_to_sheet_positional(ws_overview, overview_right, start_col=8)
 
     # red text for the "Flagged for % assessed:" column wherever it isn't "OK"
     red_font = Font(color="FF0000")
@@ -1255,21 +1729,38 @@ def save_c2c_assessment_workbook_static(
 
     ws_risk = wb["risk_assessed"]
     _clear_sheet_rows(ws_risk)
-    _write_df_to_sheet_by_header(ws_risk, risk_df)
+    # Positional, not header-matched - same reasoning as detailed_overview: nothing reads
+    # risk_assessed's cells back, and its column order now differs from the template's
+    # (the 3 chemical class flags shift the hazard block off its old fixed F..Z position).
+    _write_df_to_sheet_positional(ws_risk, risk_df)
 
     n_rows = max(len(overview_right), len(risk_df), 1)
     last_row = n_rows + 1 + 100
     if write_detailed:
-        _apply_colour_conditional_formatting(ws_detail, "N", "AH", len(c2c_df) + 1 + 100)
-    # overview's hazard-value columns (now J, L, N, ... AX after the 3-column insert) are
-    # interleaved with "Scenario ID_x" text columns (K, M, O, ...) - use the column-list
-    # variant so those never get swept in
-    overview_hazard_cols = [get_column_letter(c) for c in range(10, 51, 2)]  # J, L, N, ..., AX
-    _apply_colour_conditional_formatting_cols(ws_overview, overview_hazard_cols, last_row)
-    _apply_colour_conditional_formatting(wb["risk_assessed"], "F", "Z", last_row)
+        first_letter, last_letter = _hazard_col_range(c2c_df)
+        _apply_colour_conditional_formatting(ws_detail, first_letter, last_letter, len(c2c_df) + 1 + 100)
+    # overview's hazard-value columns are interleaved with "Scenario ID_x" text columns, and
+    # now start further right than the template's original J (the new Min/Max %, Overall
+    # Rating + Comment, chemical class flags and spacer all come first) - computed from
+    # overview_right's actual column positions rather than a hardcoded range.
+    overview_right_start_col = 8
+    hazard_start_in_block = overview_right.columns.get_loc(HAZARD_COLS_READABLE[0])
+    hazard_start_col = overview_right_start_col + hazard_start_in_block
+    overview_hazard_cols = [get_column_letter(c) for c in range(hazard_start_col, hazard_start_col + 2 * len(HAZARD_COLS_READABLE), 2)]
+    # "Overall C2C Material Health Rating" (col L) is itself a plain RED/YELLOW/GREY/GREEN
+    # value, same as every other hazard column, so it gets the same colour formatting.
+    overall_rating_col = get_column_letter(overview_right_start_col + overview_right.columns.get_loc(COL_OVERALL_RATING))
+    _apply_colour_conditional_formatting_cols(ws_overview, [overall_rating_col] + overview_hazard_cols, last_row)
+    risk_first_letter, risk_last_letter = _hazard_col_range(risk_df)
+    _apply_colour_conditional_formatting(wb["risk_assessed"], risk_first_letter, risk_last_letter, last_row)
 
     overview_last_data_row = max(len(overview_left), len(overview_right), 1) + 1
-    _style_overview_sheet(ws_overview, last_col=51, last_data_row=overview_last_data_row)
+    overview_last_col = 7 + len(overview_right.columns)
+    overview_spacer_col = overview_right_start_col + overview_right.columns.get_loc(_OVERVIEW_SPACER_COL)
+    _style_overview_sheet(
+        ws_overview, last_col=overview_last_col, last_data_row=overview_last_data_row,
+        extra_spacer_cols={overview_spacer_col},
+    )
 
     wb.save(output_path)
 
@@ -1295,10 +1786,14 @@ def save_detailed_overview_only(detail_df, output_path, template_path=C2C_ASSESS
 
     ws_detail = wb["detailed_overview"]
     _clear_sheet_rows(ws_detail)
-    _write_df_to_sheet_by_header(ws_detail, detail_df)
+    # Positional, not header-matched - see save_c2c_assessment_workbook_static's identical
+    # comment: nothing downstream reads detailed_overview's cells back, so its column order
+    # is free to follow detail_df's own order.
+    _write_df_to_sheet_positional(ws_detail, detail_df)
 
     last_row = len(detail_df) + 1 + 100
-    _apply_colour_conditional_formatting(ws_detail, "N", "AH", last_row)
+    first_letter, last_letter = _hazard_col_range(detail_df)
+    _apply_colour_conditional_formatting(ws_detail, first_letter, last_letter, last_row)
 
     wb.save(output_path)
 
