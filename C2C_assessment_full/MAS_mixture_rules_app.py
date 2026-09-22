@@ -21,10 +21,11 @@ from tkinter import filedialog, messagebox, ttk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import MAS_automation_with_mixture_rules_current as core
 
-APP_BG = "#f4f6f8"
-ACCENT = "#2563eb"
+APP_BG = "#ffffff"
+TEXT = "#000000"
+ACCENT = "#16a34a"
 GOOD = "#16a34a"
-BAD = "#dc2626"
+BAD = "#000000"
 
 
 def _timestamp():
@@ -165,12 +166,12 @@ class MixtureRulesApp:
         "quick": {
             "label": "Quick Assessment",
             "needs_db": True,
-            "description": "C2C hazard colours per chemical (from the database). Best for smaller projects.",
+            "description": "Initial assessment: C2C hazard colours per chemical (from the database).",
         },
         "mixture": {
             "label": "Mixture Rules Assessment",
             "needs_db": True,
-            "description": "Full mixture-rule hazard assessment (acute toxicity, irritation, sensitization, aquatic toxicity, and Assessment C), toxicity data from the database only.",
+            "description": "Full mixture-rule hazard assessment.",
         },
     }
 
@@ -180,39 +181,54 @@ class MixtureRulesApp:
         root.configure(bg=APP_BG)
         root.geometry("640x520")
 
+        # macOS's native ("aqua") ttk/tk theme ignores custom bg/fg on buttons, which is
+        # what made every button render white-on-white. "clam" honors our colors on all
+        # platforms.
+        style = ttk.Style(root)
+        style.theme_use("clam")
+        style.configure(
+            "Mode.TButton", font=("Helvetica", 12, "bold"),
+            background=ACCENT, foreground="white", borderwidth=0, padding=10,
+        )
+        style.map("Mode.TButton", background=[("active", "#127a37")])
+        style.configure(
+            "Run.TButton", font=("Helvetica", 12, "bold"),
+            background=GOOD, foreground="white", borderwidth=0, padding=8,
+        )
+        style.map("Run.TButton", background=[("active", "#127a37"), ("disabled", "#9ad6b0")])
+
         self.mas_path = tk.StringVar()
         self.saving_dir = tk.StringVar()
         self.db_path = tk.StringVar()
         self.selected_mode = None
 
-        title = tk.Label(root, text="C2C Screener", font=("Helvetica", 18, "bold"), bg=APP_BG)
+        title = tk.Label(root, text="C2C Screener", font=("Helvetica", 18, "bold"), bg=APP_BG, fg=TEXT)
         title.pack(pady=(18, 4))
-        subtitle = tk.Label(root, text="Choose which assessment to run.", font=("Helvetica", 11), bg=APP_BG, fg="#555")
+        subtitle = tk.Label(root, text="Choose which assessment to run.", font=("Helvetica", 11), bg=APP_BG, fg=TEXT)
         subtitle.pack(pady=(0, 16))
 
         button_frame = tk.Frame(root, bg=APP_BG)
         button_frame.pack(pady=4)
         for key, cfg in self.MODES.items():
-            btn = tk.Button(
-                button_frame, text=cfg["label"], font=("Helvetica", 12, "bold"),
-                bg=ACCENT, fg="white", activebackground="#1d4ed8", relief="flat",
-                width=32, height=2, command=lambda k=key: self.select_mode(k),
+            btn = ttk.Button(
+                button_frame, text=cfg["label"], style="Mode.TButton",
+                width=32, command=lambda k=key: self.select_mode(k),
             )
             btn.pack(pady=6)
 
-        self.desc_label = tk.Label(root, text="", font=("Helvetica", 10), bg=APP_BG, fg="#333", wraplength=560, justify="left")
+        self.desc_label = tk.Label(root, text="", font=("Helvetica", 10), bg=APP_BG, fg=TEXT, wraplength=560, justify="left")
         self.desc_label.pack(pady=(10, 10))
 
         self.inputs_frame = tk.Frame(root, bg=APP_BG)
         self.inputs_frame.pack(fill="x", padx=20)
 
-        self.run_button = tk.Button(
-            root, text="Run", font=("Helvetica", 12, "bold"), bg=GOOD, fg="white",
-            relief="flat", width=16, height=1, command=self.run_selected, state="disabled",
+        self.run_button = ttk.Button(
+            root, text="Run", style="Run.TButton",
+            width=16, command=self.run_selected, state="disabled",
         )
         self.run_button.pack(pady=10)
 
-        self.log_box = tk.Text(root, height=12, bg="white", fg="#222", font=("Courier", 9), state="disabled")
+        self.log_box = tk.Text(root, height=12, bg="white", fg=TEXT, font=("Courier", 9), state="disabled")
         self.log_box.pack(fill="both", expand=True, padx=20, pady=(0, 16))
 
     def log(self, message):
@@ -241,7 +257,7 @@ class MixtureRulesApp:
     def _add_path_row(self, parent, label_text, var, browse_command):
         row = tk.Frame(parent, bg=APP_BG)
         row.pack(fill="x", pady=3)
-        tk.Label(row, text=label_text, width=14, anchor="w", bg=APP_BG).pack(side="left")
+        tk.Label(row, text=label_text, width=14, anchor="w", bg=APP_BG, fg=TEXT).pack(side="left")
         tk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=6)
         tk.Button(row, text="Browse...", command=browse_command).pack(side="left")
 

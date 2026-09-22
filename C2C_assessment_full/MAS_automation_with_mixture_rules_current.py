@@ -23,17 +23,7 @@ from openpyxl.styles import PatternFill, Font, Alignment
 
 ########################################################################
 ### C2C ASSESSMENT EXCEL TEMPLATE
-### The "C2C_assessment_all/selected_scenarios" excels are NOT built from
-### scratch - they are a copy of templates/C2C_assessment_template.xlsx
-### with the "detailed_overview" sheet filled in with the output of
-### build_c2c_assessment_df(). The other 3 sheets in that template
-### ("overview", "percentage_assessed", "risk_assessed") contain Excel
-### formulas that read from "detailed_overview" by FIXED COLUMN LETTER.
-### If this repo moves/renames the template file, OR the column order/
-### names produced by build_c2c_assessment_df() change, you must also
-### update (or re-derive) templates/C2C_assessment_template.xlsx and
-### the path below, otherwise those formulas will silently read the
-### wrong columns.
+
 C2C_ASSESSMENT_TEMPLATE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "templates", "C2C_assessment_template.xlsx"
 )
