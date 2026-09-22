@@ -20,8 +20,14 @@ import MAS_generation as core
 APP_BG = "#f4f6f8"
 ACCENT = "#2563eb"
 GOOD = "#16a34a"
+WARN = "#b45309"
 BAD = "#dc2626"
 CANVAS_W, CANVAS_H = 520, 140
+
+# contextlib.redirect_stdout swaps sys.stdout for the whole process, not just
+# the calling thread - this lock keeps two merges from ever redirecting it
+# concurrently, even though the UI already prevents that via the Run button.
+_stdout_lock = threading.Lock()
 
 # remembers the last-used paths and settings across runs of the app
 CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".mas_merge_app_config.json")
@@ -64,19 +70,28 @@ class LogStream(io.TextIOBase):
 
 
 def run_pipeline(mas_path, output_path, max_tier, choice, log):
-    """Runs the actual merge, writing progress lines to `log` (a callable)."""
+    """Runs the actual merge, writing progress lines to `log` (a callable).
+
+    Returns (output_path, reached_tier): reached_tier is the highest tier
+    actually merged, which can be less than max_tier if a tier sheet was
+    missing - the caller uses this to avoid reporting a partial merge as a
+    plain, unqualified success.
+    """
     log(f"Merging on {'materials' if choice == 'a' else 'materials + suppliers'} up to Tier {max_tier}...")
-    with contextlib.redirect_stdout(LogStream(log)):
-        if choice == "a":
-            final_df = core.join_tier_sheets(mas_path, max_tier)
-        else:
-            final_df = core.join_tier_sheets_with_suppliers(mas_path, max_tier)
+    with _stdout_lock:
+        with contextlib.redirect_stdout(LogStream(log)):
+            if choice == "a":
+                final_df, reached_tier = core.join_tier_sheets(mas_path, max_tier)
+            else:
+                final_df, reached_tier = core.join_tier_sheets_with_suppliers(mas_path, max_tier)
     log(f"Merged dataset: {len(final_df)} rows.")
+    if reached_tier < max_tier:
+        log(f"WARNING: a tier sheet was missing - merge only reached Tier {reached_tier} of the requested Tier {max_tier}.")
 
     log("Saving the merged excel file...")
     core.join_to_excel(final_df, output_path)
     log(f"Saved: {output_path}")
-    return output_path
+    return output_path, reached_tier
 
 
 class PathRow(ttk.Frame):
@@ -321,6 +336,12 @@ class App(tk.Tk):
             return
         if not filename.lower().endswith(".xlsx"):
             filename += ".xlsx"
+        # Reject anything but a plain file name: a path (absolute or with ../)
+        # here would make os.path.join() write outside the chosen save folder,
+        # potentially overwriting an unrelated file.
+        if os.path.basename(filename) != filename:
+            self.status_label.configure(text="File name must not contain a path - just the file name itself.", foreground=BAD)
+            return
         output_path = os.path.join(saving_dir, filename)
 
         self._remember("last_max_tier", str(max_tier))
@@ -339,19 +360,27 @@ class App(tk.Tk):
 
     def _worker(self, mas_path, output_path, max_tier, choice):
         try:
-            saved_path = run_pipeline(mas_path, output_path, max_tier, choice, self._log_threadsafe)
-            self.after(0, self._on_success, saved_path)
+            saved_path, reached_tier = run_pipeline(mas_path, output_path, max_tier, choice, self._log_threadsafe)
+            self.after(0, self._on_success, saved_path, reached_tier, max_tier)
         except Exception as e:
             tb = traceback.format_exc()
             self.after(0, self._on_failure, str(e), tb)
 
-    def _on_success(self, saved_path):
+    def _on_success(self, saved_path, reached_tier, max_tier):
         self._running = False
         self._stop_spinner()
         self.run_button.configure(state="normal")
-        self.status_label.configure(text="Done - file saved.", foreground=GOOD)
-        self._log(f"\nFinished. Saved to {saved_path}")
-        self._start_confetti()
+        if reached_tier < max_tier:
+            self.status_label.configure(
+                text=f"Done, but only reached Tier {reached_tier} of {max_tier} - a tier sheet was missing. Check the log.",
+                foreground=WARN,
+            )
+            self._log(f"\nFinished with a partial merge. Saved to {saved_path}")
+            self._draw_idle()
+        else:
+            self.status_label.configure(text="Done - file saved.", foreground=GOOD)
+            self._log(f"\nFinished. Saved to {saved_path}")
+            self._start_confetti()
 
     def _on_failure(self, error_message, tb):
         self._running = False

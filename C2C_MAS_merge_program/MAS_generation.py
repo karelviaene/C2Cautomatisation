@@ -2,6 +2,7 @@ import pandas as pd
 import itertools
 import threading
 import time
+import uuid
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
@@ -102,6 +103,30 @@ def get_choice():
             return value
         else:
             print("Invalid input. Please enter 'a' or 'b'.")
+### normalize a join-key column safely, regardless of its original dtype
+def normalize_key_column(series):
+    """
+    Turns a column into normalized (stripped, lowercased) string keys for joining,
+    without corrupting the values along the way:
+    - blanks/NaN each get their own unique, unmatchable sentinel instead of
+      becoming the literal string "nan" (or plain NaN/None, which pandas'
+      merge treats as equal to other NaNs). Without this, every blank row in
+      one sheet would silently join to every blank row in the other.
+    - whole-number floats (e.g. 12345.0, which is how pandas reads a numeric
+      code column with any blank cells) are rendered as "12345", not
+      "12345.0", so they still match the same code stored as a plain int or
+      string elsewhere.
+    Applied uniformly to every tier, including Tier 1, so the start sheet
+    isn't treated differently from the rest.
+    """
+    def _key(value):
+        if pd.isna(value):
+            return f"__blank_{uuid.uuid4().hex}__"
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return str(value).strip().lower()
+
+    return series.map(_key)
 ### join the tiers
 def join_tier_sheets(input_file, max_tier):
     """
@@ -118,6 +143,10 @@ def join_tier_sheets(input_file, max_tier):
     etc.
 
     Exports final joined dataframe to Excel.
+
+    Returns (final_df, reached_tier): reached_tier is the highest tier that
+    was actually merged in, which can be lower than max_tier if a tier
+    transition sheet is missing (the merge stops there rather than failing).
     """
     max_tier = int(max_tier)
     # Get all sheet names
@@ -139,9 +168,9 @@ def join_tier_sheets(input_file, max_tier):
     # Read first sheet
     final_df = pd.read_excel(input_file, sheet_name=start_sheet)
 
-    # case-sensitive
-    final_df['Normalized Material 1'] = final_df['Tier 1 Material'].str.strip().str.lower()
+    final_df['Normalized Material 1'] = normalize_key_column(final_df['Tier 1 Material'])
 
+    reached_tier = 1
     # Loop through tier transition sheets
     for i in range(1, max_tier):
         # Handle both naming styles: T2-T3 and T2_T3
@@ -159,27 +188,20 @@ def join_tier_sheets(input_file, max_tier):
         # Read next sheet
         next_df = pd.read_excel(input_file, sheet_name=sheet_name)
 
-        #make sure columns are strings
-        cols_with_text = [join_column_name, next_tier_column_name]
-        for col in cols_with_text:
-            if not next_df[col].dtype == 'O':
-                next_df[col] = next_df[col].astype(str)
-
-
         # Normalize the names so they are not with spaces and not case-sensitive
         normalized_material = f"Normalized Material {i}"
-        next_df[normalized_material] = next_df[join_column_name].str.strip().str.lower()
+        next_df[normalized_material] = normalize_key_column(next_df[join_column_name])
         normalized_next_tier_column_name = f"Normalized Material {i+1}"
-        next_df[normalized_next_tier_column_name] = next_df[next_tier_column_name].str.strip().str.lower()
+        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_tier_column_name])
 
         join_column = normalized_material
 
         # Check join column exists
         if join_column not in final_df.columns:
-            raise KeyError(f"Column '{join_column_name}' not found in joined dataframe")
+            raise KeyError(f"Column '{normalized_material}' not found in joined dataframe")
 
         if join_column not in next_df.columns:
-            raise KeyError(f"Column '{join_column_name}' not found in sheet '{sheet_name}'")
+            raise KeyError(f"Column '{normalized_material}' not found in sheet '{sheet_name}'")
 
         # Left join
         final_df = final_df.merge(
@@ -188,6 +210,7 @@ def join_tier_sheets(input_file, max_tier):
             on=join_column,
             suffixes=("", f"_T{i + 1}")
         )
+        reached_tier = i + 1
     for i in range(1, max_tier+1):
         # Define columns to drop and drop them
         cols_to_drop = [f"Normalized Material {i}", f"Tier {i} Material_T{i + 1}", f"Tier {i} Supplier_T{i + 1}"]
@@ -199,7 +222,7 @@ def join_tier_sheets(input_file, max_tier):
 
     final_df = final_df.dropna(how="all")
 
-    return final_df
+    return final_df, reached_tier
 ### if we want to merge on suppliers too:
 def join_tier_sheets_with_suppliers(input_file, max_tier):
     max_tier = int(max_tier)
@@ -219,10 +242,10 @@ def join_tier_sheets_with_suppliers(input_file, max_tier):
     print(f"Using start sheet: {start_sheet}")
 
     final_df = pd.read_excel(input_file, sheet_name=start_sheet)
-    # case-sensitive
-    final_df['Normalized Material 1'] = final_df['Tier 1 Material'].str.strip().str.lower()
-    final_df['Normalized Supplier 1'] = final_df['Tier 1 Supplier'].str.strip().str.lower()
+    final_df['Normalized Material 1'] = normalize_key_column(final_df['Tier 1 Material'])
+    final_df['Normalized Supplier 1'] = normalize_key_column(final_df['Tier 1 Supplier'])
 
+    reached_tier = 1
     for i in range(1, max_tier):
         print(f"Processing Tier {i}")
 
@@ -241,31 +264,25 @@ def join_tier_sheets_with_suppliers(input_file, max_tier):
 
         next_df = pd.read_excel(input_file, sheet_name=sheet_name)
 
-        #make sure columns are strings
-        cols_with_text = [material_col_to_norm, supplier_col_to_norm, next_material_col, next_supp_col]
-        for col in cols_with_text:
-            if not next_df[col].dtype == 'O':
-                next_df[col] = next_df[col].astype(str)
-
         material_col = f"Normalized Material {i}"
-        next_df[material_col] = next_df[material_col_to_norm].str.strip().str.lower()
+        next_df[material_col] = normalize_key_column(next_df[material_col_to_norm])
         supplier_col = f"Normalized Supplier {i}"
-        next_df[supplier_col] = next_df[supplier_col_to_norm].str.strip().str.lower()
+        next_df[supplier_col] = normalize_key_column(next_df[supplier_col_to_norm])
 
         normalized_next_tier_column_name = f"Normalized Material {i+1}"
-        next_df[normalized_next_tier_column_name] = next_df[next_material_col].str.strip().str.lower()
+        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_material_col])
 
         normalized_next_tier_column_name = f"Normalized Supplier {i+1}"
-        next_df[normalized_next_tier_column_name] = next_df[next_supp_col].str.strip().str.lower()
+        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_supp_col])
 
-        # Check columns exist
+        # Check columns exist - a data problem (not just "no more tiers"), so
+        # raise just like join_tier_sheets does, instead of silently
+        # returning a partial merge that looks identical to a successful run.
         for col in [material_col, supplier_col]:
             if col not in final_df.columns:
-                print(f"Column '{col}' missing in main dataframe. Stopping.")
-                return final_df
+                raise KeyError(f"Column '{col}' not found in joined dataframe")
             if col not in next_df.columns:
-                print(f"Column '{col}' missing in sheet '{sheet_name}'. Stopping.")
-                return final_df
+                raise KeyError(f"Column '{col}' not found in sheet '{sheet_name}'")
 
         # Merge on TWO columns
         final_df = final_df.merge(
@@ -274,6 +291,7 @@ def join_tier_sheets_with_suppliers(input_file, max_tier):
             on=[material_col, supplier_col],
             suffixes=("", f"_T{i + 1}")
         )
+        reached_tier = i + 1
     for i in range(1, max_tier+1):
         # Define columns to drop and drop them
         cols_to_drop = [f"Normalized Material {i}",f"Normalized Supplier {i}", f"Tier {i} Material_T{i + 1}", f"Tier {i} Supplier_T{i + 1}"]
@@ -285,7 +303,7 @@ def join_tier_sheets_with_suppliers(input_file, max_tier):
 
     final_df = final_df.dropna(how="all")
 
-    return final_df
+    return final_df, reached_tier
 ### export as excel
 def join_to_excel(final_df, output_file):
 
@@ -340,10 +358,13 @@ if __name__ == "__main__":
     print("--------------------------------------------------------------")
     print("Merging...")
     final_df = None
+    reached_tier = None
     if choice == "a":
-        final_df = join_tier_sheets(input_file, max_tier)
+        final_df, reached_tier = join_tier_sheets(input_file, max_tier)
     if choice == "b":
-        final_df = join_tier_sheets_with_suppliers(input_file, max_tier)
+        final_df, reached_tier = join_tier_sheets_with_suppliers(input_file, max_tier)
+    if reached_tier is not None and reached_tier < max_tier:
+        print(f"WARNING: merge stopped at Tier {reached_tier} (requested Tier {max_tier}) - a tier sheet was missing.")
     print("--------------------------------------------------------------")
     if final_df is not None:
         spinner_stop = start_spinner("Saving")
