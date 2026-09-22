@@ -1,16 +1,17 @@
 ### Mixture Rules Assessment - desktop app
 ### A small tkinter window with 3 buttons - one per pipeline in
-### MAS_automation_with_mixture_rules_current.py - that runs the picked pipeline to
+### C2C_assessment_full.py - that runs the picked pipeline to
 ### completion with no interactive y/n prompts (unlike that module's own CLI menu, which
 ### asks whether to additionally save "all scenarios"/"selected scenarios" - this app
 ### always saves the core outputs and skips those optional extras, matching "don't prompt
 ### the user for options, just make buttons").
-### Reuses MAS_automation_with_mixture_rules_current.py's logic by import (that module now
+### Reuses C2C_assessment_full.py's logic by import (that module now
 ### has a __main__ guard, so importing it does not auto-run its own CLI menu) rather than
 ### duplicating it - keep the two in sync if the pipeline itself changes.
 
 import os
 import sys
+import json
 import threading
 import traceback
 from datetime import datetime
@@ -19,7 +20,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import MAS_automation_with_mixture_rules_current as core
+import C2C_assessment_full as core
 
 APP_BG = "#ffffff"
 TEXT = "#000000"
@@ -27,13 +28,42 @@ ACCENT = "#16a34a"
 GOOD = "#16a34a"
 BAD = "#000000"
 
+# Remembers the last-used save folder (and MAS/DB file paths) across runs of the app - same
+# mechanism as MAS_quick_C2C_assessment_app.py's own load_config/save_config, but its own
+# config file so the two apps don't clobber each other's remembered paths.
+CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".c2c_assessment_full_app_config.json")
+
+
+def load_config():
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_config(cfg):
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(cfg, f)
+    except Exception:
+        pass  # not critical - just means the next run won't remember the folder
+
 
 def _timestamp():
     return datetime.now().strftime("%Y%m%d")
 
 
 def run_percent_assessed(mas_path, saving_dir, log):
-    """Percent assessed only - no DB, no hazard endpoints."""
+    """Percent assessed only - no DB, no hazard endpoints (option "Percent Assessed").
+
+    Output is exactly two things, same as Quick Assessment/Mixture Rules - no other files:
+    - a summary file with "overview"/"percentage_assessed" only (no "risk_assessed" sheet -
+      that sheet is entirely built from hazard colours, which this pipeline never has since
+      it never queries the database - and "overview" has no hazard columns either);
+    - a separate detailed_overview file (or files, split/subfoldered for large projects)
+      with each row's own composition data (no hazard colours).
+    """
     file_name = os.path.basename(mas_path)
     df = core.pd.read_excel(mas_path)
 
@@ -51,26 +81,35 @@ def run_percent_assessed(mas_path, saving_dir, log):
     log("Generating scenarios...")
     df = core.identify_alternative_groups(df, max_tier)
     scenarios = core.generate_scenarios(df, max_tier)
+    scenario_ids = [s["scenario_id"] for s in scenarios]
     log(f"Scenarios generated: {len(scenarios)}")
 
-    log("Calculating percentage assessed (this can take a while for large projects)...")
-    summary_df, pct_dict = core.analyse_the_dataset(df, scenarios)
+    log("Building the detailed per-CAS dataset (this can take a while for large projects)...")
+    all_scenarios_df = core.build_selected_scenarios_df(df, scenarios, scenario_ids)
+    detailed_df = core.build_percent_assessed_detailed_df(all_scenarios_df)
 
     time_str = _timestamp()
-    saving_summary = os.path.join(saving_dir, f"summary_{time_str}_{file_name}.xlsx")
-    saving_percent_assessed = os.path.join(saving_dir, f"percent_assessed_{time_str}_{file_name}.xlsx")
-    saving_CAS = os.path.join(saving_dir, f"CAS_{time_str}_{file_name}.xlsx")
+    file_stem = os.path.splitext(file_name)[0]
 
-    summary_df.to_excel(saving_summary, index=False)
-    core.save_percent_assessed(pct_dict, saving_percent_assessed)
-    core.save_unique_values(df, "CAS", saving_CAS)
-    log("Saved summary, percentage assessed and unique-CAS files.")
+    log("Saving percent-assessed summary (overview/percentage_assessed)...")
+    saving_summary = os.path.join(saving_dir, f"C2C_assessment_percent_assessed_{time_str}_{file_stem}.xlsx")
+    core.save_percent_assessed_workbook(detailed_df, saving_summary, write_detailed=False)
 
-    return [saving_summary, saving_percent_assessed, saving_CAS]
+    log("Saving detailed_overview...")
+    detailed_paths = core.save_c2c_detailed_overview_output(detailed_df, saving_dir, file_name, time_str)
+
+    log("Saved percent-assessed summary and detailed_overview files.")
+
+    return [saving_summary] + detailed_paths
 
 
 def run_quick_assessment(mas_path, saving_dir, db_path, log):
-    """C2C assessment only, no mixture rules (option C) - all scenarios, no selection."""
+    """C2C assessment only, no mixture rules (option C) - all scenarios, no selection.
+
+    Output matches MAS_quick_C2C_assessment_static.py's run_quick_c2c_assessment_static()
+    1:1: same save_c2c_assessment_output() call, same "no hard row cap" behaviour (a large
+    project splits the detailed_overview into multiple files/batches instead of raising).
+    """
     file_name = os.path.basename(mas_path)
     df = core.pd.read_excel(mas_path)
 
@@ -95,26 +134,31 @@ def run_quick_assessment(mas_path, saving_dir, db_path, log):
     all_scenarios_df = core.build_selected_scenarios_df(df, scenarios, scenario_ids)
     log(f"Detailed rows generated: {len(all_scenarios_df)}")
 
-    if len(all_scenarios_df) > core.C2C_ASSESSMENT_TEMPLATE_MAX_ROWS:
-        raise RuntimeError(
-            f"This project generates {len(all_scenarios_df)} rows, more than the "
-            f"{core.C2C_ASSESSMENT_TEMPLATE_MAX_ROWS}-row cap for Quick Assessment. "
-            "Use Percent Assessed or Mixture Rules Assessment instead for a project this size."
-        )
-
     log("Pulling C2C colour assessment hazards from the database...")
     c2c_df = core.build_c2c_assessment_df(all_scenarios_df, db_path)
+    cas_list_all = core.clean_cas_values(c2c_df["CAS"].tolist()) if "CAS" in c2c_df.columns else []
+    _, missing_cas_df = core.extract_colour_assessment_C2C(cas_list_all, db_path)
 
     time_str = _timestamp()
-    saving_c2c = os.path.join(saving_dir, f"C2C_assessment_all_scenarios_{time_str}_{file_name}.xlsx")
-    core.save_c2c_assessment_workbook(c2c_df, saving_c2c)
-    log("Saved C2C assessment (all scenarios) file.")
+    log("Saving C2C assessment (summary + detailed_overview)...")
+    saved_paths = core.save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, time_str)
+    log("Saved C2C assessment summary and detailed_overview files.")
 
-    return [saving_c2c]
+    return saved_paths
 
 
 def run_mixture_rules(mas_path, saving_dir, db_path, log):
-    """Full % assessed + mixture rules (including Assessment C) assessment (option B)."""
+    """Full % assessed + mixture rules (including the no-mixture-rules endpoints) assessment (option B).
+
+    Output is exactly two things (same "overview"/"percentage_assessed"/"risk_assessed"/
+    "detailed_overview" sheet shapes used by the Quick Assessment program) - no other files:
+    - a summary file with the mixture-rule-computed overview/percentage_assessed/risk_assessed
+      sheets (per (Product, Homogenous Material[, Scenario]), 8 endpoints computed by the
+      additive mixture rule, 13 non-additive endpoints unchanged);
+    - a separate detailed_overview file (or files, split/subfoldered for large projects)
+      with each CAS's own RAW colour - same shape as option A/C's own detailed_overview,
+      NOT the hom-mat mixture-rule result broadcast down.
+    """
     file_name = os.path.basename(mas_path)
     df = core.pd.read_excel(mas_path)
 
@@ -132,28 +176,43 @@ def run_mixture_rules(mas_path, saving_dir, db_path, log):
     log("Generating scenarios...")
     df = core.identify_alternative_groups(df, max_tier)
     scenarios = core.generate_scenarios(df, max_tier)
+    scenario_ids = [s["scenario_id"] for s in scenarios]
     log(f"Scenarios generated: {len(scenarios)}")
 
     log("Calculating mixture rules (acute toxicity, irritation, sensitization, aquatic "
-        "toxicity, Assessment C) - toxicity data comes from the database only, this can "
+        "toxicity, no-mixture-rules endpoints) - toxicity data comes from the database only, this can "
         "take a while for large projects...")
-    summary_df, pct_dict, c2c_extremes_df, all_c2c_scenario_results_df = core.analyse_the_dataset_with_mixture_rules(
+    _, _, c2c_extremes_df, all_c2c_scenario_results_df, active_scaffold_df = core.analyse_the_dataset_with_mixture_rules(
         df, scenarios, db_path
     )
 
     time_str = _timestamp()
-    saving_summary = os.path.join(saving_dir, f"summary_{time_str}_{file_name}.xlsx")
-    saving_percent_assessed = os.path.join(saving_dir, f"percent_assessed_{time_str}_{file_name}.xlsx")
-    saving_CAS = os.path.join(saving_dir, f"CAS_{time_str}_{file_name}.xlsx")
-    saving_mixture_rules = os.path.join(saving_dir, f"mixture_rules_{time_str}_{file_name}.xlsx")
+    file_stem = os.path.splitext(file_name)[0]
 
-    summary_df.to_excel(saving_summary, index=False)
-    core.save_percent_assessed(pct_dict, saving_percent_assessed)
-    core.save_unique_values(df, "CAS", saving_CAS)
-    core.save_mixture_rules_assessment_output(c2c_extremes_df, all_c2c_scenario_results_df, saving_mixture_rules)
-    log("Saved summary, percentage assessed, unique-CAS and mixture rules assessment files.")
+    log("Building the detailed per-CAS dataset (this can take a while for large projects)...")
+    all_scenarios_df = core.build_selected_scenarios_df(df, scenarios, scenario_ids)
+    detailed_overview_df = core.build_c2c_assessment_df(all_scenarios_df, db_path)
+    cas_list_all = (
+        core.clean_cas_values(detailed_overview_df["CAS"].tolist())
+        if "CAS" in detailed_overview_df.columns else []
+    )
+    _, missing_cas_df = core.extract_colour_assessment_C2C(cas_list_all, db_path)
 
-    return [saving_summary, saving_percent_assessed, saving_CAS, saving_mixture_rules]
+    log("Saving detailed_overview (per-CAS, raw colours)...")
+    detailed_paths = core.save_c2c_detailed_overview_output(
+        detailed_overview_df, saving_dir, file_name, time_str
+    )
+
+    log("Saving mixture-rule summary (overview/percentage_assessed/risk_assessed)...")
+    readable_scaffold_df = core.rename_mixture_rules_endpoints_to_readable(active_scaffold_df)
+    saving_mixture_rules_summary = os.path.join(saving_dir, f"C2C_assessment_mixture_rules_{time_str}_{file_stem}.xlsx")
+    core.save_c2c_assessment_workbook_static(
+        readable_scaffold_df, missing_cas_df, saving_mixture_rules_summary, write_detailed=False
+    )
+
+    log("Saved mixture-rules summary and detailed_overview files.")
+
+    return [saving_mixture_rules_summary] + detailed_paths
 
 
 class MixtureRulesApp:
@@ -197,10 +256,19 @@ class MixtureRulesApp:
         )
         style.map("Run.TButton", background=[("active", "#127a37"), ("disabled", "#9ad6b0")])
 
+        self._config = load_config()
+
         self.mas_path = tk.StringVar()
         self.saving_dir = tk.StringVar()
         self.db_path = tk.StringVar()
         self.selected_mode = None
+
+        # Remember the last-used MAS file, save folder, and database file across runs of the
+        # app, but only restore each if it still actually exists (e.g. an external drive
+        # that's no longer plugged in, or a file since moved/deleted).
+        self.mas_path.set(self._remembered("last_mas_file", is_dir=False))
+        self.saving_dir.set(self._remembered("last_folder", is_dir=True))
+        self.db_path.set(self._remembered("last_db_file", is_dir=False))
 
         title = tk.Label(root, text="C2C Screener", font=("Helvetica", 18, "bold"), bg=APP_BG, fg=TEXT)
         title.pack(pady=(18, 4))
@@ -239,6 +307,16 @@ class MixtureRulesApp:
             self.log_box.configure(state="disabled")
         self.root.after(0, _write)
 
+    def _remembered(self, key, is_dir):
+        """Read back a remembered path from config, but only if it still actually exists."""
+        path = self._config.get(key, "")
+        check = os.path.isdir if is_dir else os.path.isfile
+        return path if path and check(path) else ""
+
+    def _remember(self, key, path):
+        self._config[key] = path
+        save_config(self._config)
+
     def select_mode(self, key):
         self.selected_mode = key
         cfg = self.MODES[key]
@@ -265,18 +343,22 @@ class MixtureRulesApp:
         path = filedialog.askopenfilename(title="Select the MAS Excel file", filetypes=[("Excel files", "*.xlsx *.xls")])
         if path:
             self.mas_path.set(path)
+            self._remember("last_mas_file", path)
             if not self.saving_dir.get():
                 self.saving_dir.set(os.path.dirname(path))
+                self._remember("last_folder", os.path.dirname(path))
 
     def browse_folder(self):
         path = filedialog.askdirectory(title="Select the folder to save output files in")
         if path:
             self.saving_dir.set(path)
+            self._remember("last_folder", path)
 
     def browse_db_file(self):
         path = filedialog.askopenfilename(title="Select the database file", filetypes=[("Database files", "*.db *.sqlite *.sqlite3"), ("All files", "*.*")])
         if path:
             self.db_path.set(path)
+            self._remember("last_db_file", path)
 
     def run_selected(self):
         mode = self.selected_mode
