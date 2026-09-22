@@ -314,39 +314,42 @@ def join_to_excel(final_df, output_file):
 
     # print(f"File saved to: {output_file}")
 
-###
-print("--------------------------------------------------------------")
-print("Select the Excel file (MAS) to analyse.")
-input_file = open_excel_file()
-print("--------------------------------------------------------------")
-output_file = select_output_file()
-print("Choose the name of the file to save.")
-print("--------------------------------------------------------------")
-print("How many Tiers are there?")
-# Ask user how many tiers there are
-max_tier = get_max_tier()
-print("")
-print("--------------------------------------------------------------")
-print("Merge on:"
-      " \n a. materials column (e.g. Tier 1 Material)"
-      "\n or "
-      "\n b. materials and suppliers (e.g. Tier 1 Material + Tier 1 Supplier) Disclaimer:be careful to have the supplier in both excel sheets as the program looks for exact match"
-      "\n"
-      "\n Write a or b")
-choice = get_choice()
-print("--------------------------------------------------------------")
-print("Merging...")
-final_df = None
-if choice == "a":
-    final_df = join_tier_sheets(input_file, max_tier)
-if choice == "b":
-    final_df = join_tier_sheets_with_suppliers(input_file, max_tier)
-print("--------------------------------------------------------------")
-if final_df is not None:
-    spinner_stop = start_spinner("Saving")
-    try:
-        join_to_excel(final_df, output_file)
-    finally:
-        spinner_stop.set()
-print("--------------------------------------------------------------")
-print(f"File saved to: {output_file}")
+### CLI entry point - only runs when this file is executed directly, not when
+### it is imported (e.g. by MAS_generator_app.py, which reuses the functions
+### above with its own GUI-driven inputs instead of these console prompts).
+if __name__ == "__main__":
+    print("--------------------------------------------------------------")
+    print("Select the Excel file (MAS) to analyse.")
+    input_file = open_excel_file()
+    print("--------------------------------------------------------------")
+    output_file = select_output_file()
+    print("Choose the name of the file to save.")
+    print("--------------------------------------------------------------")
+    print("How many Tiers are there?")
+    # Ask user how many tiers there are
+    max_tier = get_max_tier()
+    print("")
+    print("--------------------------------------------------------------")
+    print("Merge on:"
+          " \n a. materials column (e.g. Tier 1 Material)"
+          "\n or "
+          "\n b. materials and suppliers (e.g. Tier 1 Material + Tier 1 Supplier) Disclaimer:be careful to have the supplier in both excel sheets as the program looks for exact match"
+          "\n"
+          "\n Write a or b")
+    choice = get_choice()
+    print("--------------------------------------------------------------")
+    print("Merging...")
+    final_df = None
+    if choice == "a":
+        final_df = join_tier_sheets(input_file, max_tier)
+    if choice == "b":
+        final_df = join_tier_sheets_with_suppliers(input_file, max_tier)
+    print("--------------------------------------------------------------")
+    if final_df is not None:
+        spinner_stop = start_spinner("Saving")
+        try:
+            join_to_excel(final_df, output_file)
+        finally:
+            spinner_stop.set()
+    print("--------------------------------------------------------------")
+    print(f"File saved to: {output_file}")
