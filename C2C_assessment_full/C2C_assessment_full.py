@@ -2956,7 +2956,9 @@ def mixture_rules_C2C_assessment_from_db(df_product, db_path):
     # already-computed base_result for this scenario. Degrade to NOT_ENOUGH_INFO_LABEL
     # for this assessment's own columns only.
     try:
-        no_mixture_rules_result = assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=colour_df)
+        no_mixture_rules_result = assessment_with_no_mixture_rules(
+            df_product, cas_list, db_path, colour_df=colour_df, toxicity_info_df=df_toxicity_info
+        )
     except Exception as e:
         print(f"WARNING assessment_with_no_mixture_rules failed: {e}")
         product_hom_pairs = df_product[["Product", "Homogenous Material"]].drop_duplicates()
@@ -3402,6 +3404,8 @@ def build_mixture_rules_toxicity_info_from_db(cas_list, db_path, colour_df=None)
         "sensitization C2C assessment",
         "fish toxicity C2C assessment", "invertebrate toxicity C2C assessment", "algae toxicity C2C assessment",
     ]
+    empty_columns += [f"SCL - {label} - value" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
+    empty_columns += [f"SCL - {label} -> Yes / No" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
 
     cas_list = clean_cas_values(cas_list)
     if not cas_list:
@@ -3527,6 +3531,27 @@ def build_mixture_rules_toxicity_info_from_db(cas_list, db_path, colour_df=None)
     if scl_rows:
         df = df.merge(pd.DataFrame(scl_rows), on="CAS", how="left")
 
+    # No-mixture-rules endpoints (assessment_with_no_mixture_rules): detect, per endpoint,
+    # whether SCONCLIM actually defines an SCL for it - by the same "<label> - Lower/Upper
+    # Limit: (%)" naming convention as the sensitization SCLs above - and expose it per CAS
+    # as a Yes/No flag plus the actual %-value (min of lower/upper, blank if neither
+    # exists). "Yes" here is necessarily per-CAS: a column only "exists" for an endpoint
+    # that ARCHE has entered at least one row for, but any given CAS may still have no
+    # value of its own in it. assessment_with_no_mixture_rules reads these same value
+    # columns for its per-substance relevance check, so the detailed_overview record and
+    # the calculation are guaranteed to agree.
+    for label in NO_MIXTURE_RULES_ENDPOINTS.values():
+        lower_col = f"{label} - Lower Limit: (%)"
+        upper_col = f"{label} - Upper Limit: (%)"
+        present_cols = [c for c in [lower_col, upper_col] if c in df.columns]
+        value_col = f"SCL - {label} - value"
+        flag_col = f"SCL - {label} -> Yes / No"
+        if present_cols:
+            df[value_col] = pd.to_numeric(df[present_cols].min(axis=1), errors="coerce")
+        else:
+            df[value_col] = np.nan
+        df[flag_col] = np.where(df[value_col].notna(), "Yes", "No")
+
     # Merge whenever colour_df has the columns we need - NOT gated on colour_df being
     # non-empty: a chemical simply absent from COLOUR_ASSESSMENT_C2C (a normal, expected
     # case, not a failure) still returns a correctly-columned but zero-ROW DataFrame from
@@ -3594,33 +3619,44 @@ NO_MIXTURE_RULES_ENDPOINTS = {
 # (extract_info_from_DB's rating_rank) - re-used here for consistency across the toolkit.
 _NO_MIXTURE_RULES_RANK = {"GREEN": 1, "YELLOW": 2, "GREY": 3, "RED": 4}
 
-# Per-endpoint SCL column name(s) in SCONCLIM, if one exists for that endpoint - none of
-# SCONCLIM's current columns (Skin Corr. 1B, Eye/Skin Irrit. 2, STOT SE 3, AAA, Skin Sens.
-# 1/1A) correspond to any no-mixture-rules endpoint today. Add an entry here
-# (endpoint_colour_col -> "<SCL column> - Lower Limit: (%)") if/when ARCHE adds one; until
-# then every endpoint below uses the flat 0.01% cut-off only.
-NO_MIXTURE_RULES_SCL_COLUMNS = {}
-
-
-def assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=None):
+def assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=None, toxicity_info_df=None):
     """
     Non-additive C2C mixture rule for every "no mixture rules" endpoint: per homogeneous
-    material, a chemical is "relevant" if its concentration is >= 0.01% OR above its own
-    SCL for that endpoint (if one is defined in NO_MIXTURE_RULES_SCL_COLUMNS); the hom
-    mat's rating is the WORST rating among its relevant chemicals. A relevant chemical
-    with no usable rating for that endpoint is treated as GREY rather than invalidating
-    the whole hom mat's result for that endpoint.
+    material, a chemical is "relevant" if:
+    - this endpoint has its OWN SCL for that specific chemical (SCONCLIM's
+      "<label> - Lower/Upper Limit: (%)" columns, detected dynamically - see
+      build_mixture_rules_toxicity_info_from_db's "SCL - <label> - value"/"SCL - <label> ->
+      Yes / No" columns), in which case the chemical's concentration is compared ONLY
+      against that SCL (never against the flat cut-off too - an SCL replaces it, it doesn't
+      add another way in);
+    - otherwise (no SCL exists for this endpoint at all, or this particular chemical has
+      none of its own even though the endpoint does for others), the flat 0.01% cut-off
+      applies instead.
+    The hom mat's rating is the WORST rating among its relevant chemicals. A relevant
+    chemical with no usable rating for that endpoint is treated as GREY rather than
+    invalidating the whole hom mat's result for that endpoint.
 
     `colour_df` lets a caller that already fetched extract_colour_assessment_C2C(cas_list,
     db_path) for this same cas_list pass it in instead of re-querying the DB here - see
     build_mixture_rules_toxicity_info_from_db's identical parameter for the rationale.
+    `toxicity_info_df` similarly lets a caller that already built
+    build_mixture_rules_toxicity_info_from_db(cas_list, db_path) pass it in (it's where the
+    "SCL - <label> - value" columns this function reads come from) instead of rebuilding it
+    here.
     """
     if colour_df is None:
         colour_df, _ = extract_colour_assessment_C2C(cas_list, db_path)
+    if toxicity_info_df is None:
+        toxicity_info_df = build_mixture_rules_toxicity_info_from_db(cas_list, db_path, colour_df=colour_df)
 
     d = df_product.copy()
     d["conc_hom_mat"] = d[["min_contribution_hom_mat", "max_contribution_hom_mat"]].max(axis=1)
     d = d.merge(colour_df, on="CAS", how="left")
+
+    scl_value_cols = [f"SCL - {label} - value" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
+    scl_value_cols = [c for c in scl_value_cols if c in toxicity_info_df.columns]
+    if scl_value_cols:
+        d = d.merge(toxicity_info_df[["CAS"] + scl_value_cols], on="CAS", how="left")
 
     # (Product, Homogenous Material) pairs, not hom-mat name alone
     product_hom_pairs = list(
@@ -3634,11 +3670,18 @@ def assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=No
         for colour_col, label in NO_MIXTURE_RULES_ENDPOINTS.items():
             out_col = f"C2C {label}"
 
-            relevant_mask = (sub["CAS"] != "not assessed") & sub["conc_hom_mat"].notna() & (sub["conc_hom_mat"] >= 0.0001)
-            scl_col = NO_MIXTURE_RULES_SCL_COLUMNS.get(colour_col)
-            if scl_col and scl_col in sub.columns:
-                scl_fraction = pd.to_numeric(sub[scl_col], errors="coerce") / 100.0
-                relevant_mask = relevant_mask | (sub["conc_hom_mat"] > scl_fraction)
+            base_relevant = (sub["CAS"] != "not assessed") & sub["conc_hom_mat"].notna()
+            value_col = f"SCL - {label} - value"
+            if value_col in sub.columns:
+                own_scl_fraction = pd.to_numeric(sub[value_col], errors="coerce") / 100.0
+                has_own_scl = own_scl_fraction.notna()
+                threshold_met = (
+                    (has_own_scl & (sub["conc_hom_mat"] >= own_scl_fraction))
+                    | (~has_own_scl & (sub["conc_hom_mat"] >= 0.0001))
+                )
+            else:
+                threshold_met = sub["conc_hom_mat"] >= 0.0001
+            relevant_mask = base_relevant & threshold_met
 
             relevant = sub.loc[relevant_mask]
 
@@ -3698,12 +3741,20 @@ def _tier_contribution_rename_map(tier_cols):
 
 
 ### Build a C2C assessment df (product/material/contribution cols + DB hazards) from a scenarios df
-def build_c2c_assessment_df(scenarios_df, db_path):
+def build_c2c_assessment_df(scenarios_df, db_path, include_mixture_rule_db_details=False):
     """
     Take a scenarios df (all or selected scenarios) and keep only the
     product/material/contribution columns, then join the C2C colour
     assessment hazards pulled from COLOUR_ASSESSMENT_C2C for the CAS
     numbers present in it.
+
+    Pass include_mixture_rule_db_details=True (mixture rules pipeline only) to also merge in
+    every other per-CAS raw value the additive mixture-rule calculation reads from the DB -
+    LD50/LC50 measurements, CLP classification text, sensitisation/aquatic classification
+    text, M-factor, and every SCONCLIM SCL column (blank for a CAS/endpoint with none) - via
+    build_mixture_rules_toxicity_info_from_db. Placed right after the 21 hazard colour
+    columns and before the per-tier running-% columns, so the detailed_overview carries a
+    full record of the values the calculation actually used.
     """
     base_cols = [
         product,
@@ -3740,6 +3791,15 @@ def build_c2c_assessment_df(scenarios_df, db_path):
         print("CAS missing from COLOUR_ASSESSMENT_C2C:", missing_cas_df)
 
     c2c_df = c2c_df.merge(hazards_df, on="CAS", how="left")
+
+    if include_mixture_rule_db_details:
+        toxicity_info_df = build_mixture_rules_toxicity_info_from_db(cas_list, db_path, colour_df=hazards_df)
+        # The 8 "<endpoint> C2C assessment" columns duplicate the hazard block already
+        # merged in above (just under a different naming convention) - drop them here so
+        # each raw colour appears exactly once in the output.
+        duplicate_cols = [c for c in toxicity_info_df.columns if c.endswith(" C2C assessment")]
+        toxicity_info_df = toxicity_info_df.drop(columns=duplicate_cols, errors="ignore")
+        c2c_df = c2c_df.merge(toxicity_info_df, on="CAS", how="left")
 
     if tier_cols:
         for col in tier_cols:
@@ -4060,6 +4120,17 @@ def _reattach_incomplete_comp_prefix(active_df, group_cols, hazard_col, group_in
         for key, c in zip(group_index, colours.values)
     ]
 
+
+def _apply_without_mixture_rules_label(hazard_col, colours):
+    """Quick-assessment (mixture_rules_ran=False) equivalent of _reattach_incomplete_comp_prefix -
+    matches MAS_quick_C2C_assessment_current.py's _display_colour: since mixture rules never ran
+    at all here, every one of the 8 mixture-rule-capable endpoints unconditionally gets prefixed,
+    regardless of the individual raw value (no INCOMPLETE_COMP_LABEL/NOT_ENOUGH_DB_DATA_LABEL
+    fallback state applies - those only exist inside the mixture-rules pipeline)."""
+    if hazard_col not in MIXTURE_RULE_CAPABLE_READABLE_COLS:
+        return colours.values
+    return [f"WITHOUT MIXTURE RULES: {c}" for c in colours.values]
+
 # Plain worst-case: GREY is a real, competing state for these endpoints.
 OVERALL_RATING_STANDARD_ENDPOINTS = [
     "C2C assessment mutagenicity genotoxicity",
@@ -4352,8 +4423,14 @@ def _build_flagged_issues_by_product(active_df, products_index, missing_cas_df):
     return pct_flags, cas_flags
 
 
-def build_overview_df(detailed_df, missing_cas_df=None):
-    """Build the "overview" sheet's left block (worst %-assessed and its scenario(s) per Product, with % assessed/missing-CAS flags) and right block (per Product+Homogeneous Material: %-in-product range, worst chemical-class flags, worst raw colour per hazard endpoint with scenario IDs, and the derived overall C2C material health rating and comment)."""
+def build_overview_df(detailed_df, missing_cas_df=None, mixture_rules_ran=True):
+    """Build the "overview" sheet's left block (worst %-assessed and its scenario(s) per Product, with % assessed/missing-CAS flags) and right block (per Product+Homogeneous Material: %-in-product range, worst chemical-class flags, worst raw colour per hazard endpoint with scenario IDs, and the derived overall C2C material health rating and comment).
+
+    Pass mixture_rules_ran=False (quick assessment / option C) when detailed_df's hazard
+    colours are raw per-CAS DB values that never went through the additive mixture-rule
+    calculation - the 8 mixture-rule-capable endpoints are then unconditionally labelled
+    "WITHOUT MIXTURE RULES: {colour}" instead of getting _reattach_incomplete_comp_prefix's
+    fallback-only labelling, matching MAS_quick_C2C_assessment_current.py's _display_colour."""
     active_df = detailed_df[detailed_df[COL_ACTIVE] == True].copy()
 
     # ---- left block: worst % assessed per Product, across all its scenarios ----
@@ -4420,9 +4497,12 @@ def build_overview_df(detailed_df, missing_cas_df=None):
         # where the underlying raw value was in that fallback state (see
         # _reattach_incomplete_comp_prefix's docstring). Overall rating still uses the bare
         # `colours` (raw_colours_by_hazard), not this display-only wrapped value.
-        right_df[hazard_col] = _reattach_incomplete_comp_prefix(
-            active_df, [COL_PRODUCT, COL_HOM_MAT], hazard_col, idx_ph, colours
-        )
+        if mixture_rules_ran:
+            right_df[hazard_col] = _reattach_incomplete_comp_prefix(
+                active_df, [COL_PRODUCT, COL_HOM_MAT], hazard_col, idx_ph, colours
+            )
+        else:
+            right_df[hazard_col] = _apply_without_mixture_rules_label(hazard_col, colours)
         right_df[f"Scenario ID_{suffix}"] = scenario_lists.values
 
     overall_ratings = []
@@ -4508,8 +4588,10 @@ def build_percentage_assessed_df(detailed_df):
     return left_df, right_df
 
 
-def build_risk_assessed_df(detailed_df):
-    """Build the "risk_assessed" sheet: per Product+Homogeneous Material+Scenario, the %-in-product range plus the worst chemical-class flags for that scenario."""
+def build_risk_assessed_df(detailed_df, mixture_rules_ran=True):
+    """Build the "risk_assessed" sheet: per Product+Homogeneous Material+Scenario, the %-in-product range plus the worst chemical-class flags for that scenario.
+
+    See build_overview_df's docstring for mixture_rules_ran's meaning."""
     active_df = detailed_df[detailed_df[COL_ACTIVE] == True].copy()
 
     idx_phs = pd.MultiIndex.from_frame(
@@ -4538,9 +4620,12 @@ def build_risk_assessed_df(detailed_df):
         colours, _ = _worst_colour_by_group(
             active_df, [COL_PRODUCT, COL_HOM_MAT, COL_SCENARIO_ID], hazard_col, idx_phs, with_scenarios=False
         )
-        df[hazard_col] = _reattach_incomplete_comp_prefix(
-            active_df, [COL_PRODUCT, COL_HOM_MAT, COL_SCENARIO_ID], hazard_col, idx_phs, colours
-        )
+        if mixture_rules_ran:
+            df[hazard_col] = _reattach_incomplete_comp_prefix(
+                active_df, [COL_PRODUCT, COL_HOM_MAT, COL_SCENARIO_ID], hazard_col, idx_phs, colours
+            )
+        else:
+            df[hazard_col] = _apply_without_mixture_rules_label(hazard_col, colours)
 
     return df
 
@@ -4660,7 +4745,8 @@ def _apply_colour_conditional_formatting_cols(ws, col_letters, last_row):
 
 
 def save_c2c_assessment_workbook_static(
-    c2c_df, missing_cas_df, output_path, template_path=MIXTURE_RULES_TEMPLATE_PATH, write_detailed=True
+    c2c_df, missing_cas_df, output_path, template_path=MIXTURE_RULES_TEMPLATE_PATH, write_detailed=True,
+    mixture_rules_ran=True
 ):
     """
     Copy the shared C2C assessment template to output_path, but instead of generating Excel
@@ -4669,7 +4755,8 @@ def save_c2c_assessment_workbook_static(
     MAS_quick_C2C_assessment_static.py's identical function (see its docstring for the full
     layout rationale). Pass write_detailed=False for a "summary only" file - "detailed_overview"
     is then dropped entirely (its data lives in the separate detailed_overview file(s), see
-    save_c2c_assessment_output()).
+    save_c2c_assessment_output()). Pass mixture_rules_ran=False for quick assessment (option C) -
+    see build_overview_df's docstring.
     """
     if not os.path.exists(template_path):
         raise FileNotFoundError(
@@ -4698,9 +4785,9 @@ def save_c2c_assessment_workbook_static(
     header_cell_cas = ws_overview.cell(row=1, column=2, value="C2C hazard assessment missing CAS:")
     header_cell_cas.font = bold
 
-    overview_left, overview_right = build_overview_df(c2c_df, missing_cas_df)
+    overview_left, overview_right = build_overview_df(c2c_df, missing_cas_df, mixture_rules_ran=mixture_rules_ran)
     percentage_left, percentage_right = build_percentage_assessed_df(c2c_df)
-    risk_df = build_risk_assessed_df(c2c_df)
+    risk_df = build_risk_assessed_df(c2c_df, mixture_rules_ran=mixture_rules_ran)
 
     _clear_sheet_rows(ws_overview)
     _write_df_to_sheet_by_header(ws_overview, overview_left, start_col=1, end_col=7)
@@ -4885,23 +4972,17 @@ def _split_scenarios_into_batches(df_p, row_cap):
     return batches
 
 
-def save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, date_str, template_path=MIXTURE_RULES_TEMPLATE_PATH):
-    """Save the C2C assessment (summary file + separate detailed_overview file(s)) - copied
-    unchanged from MAS_quick_C2C_assessment_static.py (see its docstring for the full
-    file-splitting rationale). Returns the list of saved file paths."""
-    file_stem = os.path.splitext(file_name)[0]
+def _save_detailed_overview_files(c2c_df, detail_dir, file_stem, date_str, name_base, template_path):
+    """Shared file-splitting/naming logic for a detailed_overview output directory, used by
+    both save_c2c_assessment_output and save_c2c_detailed_overview_output. name_base is the
+    filename prefix (e.g. "C2C_quick_assessment_detailed_overview", "C2C_percent_assessed_detailed_overview",
+    "C2C_assessment_detailed_overview") - the caller uses the same string to name detail_dir itself, so
+    the folder and the file(s) inside it share one naming scheme. Returns the list of saved paths."""
     saved_paths = []
-
-    summary_path = os.path.join(saving_dir, f"C2C_assessment_{file_stem}_{date_str}.xlsx")
-    save_c2c_assessment_workbook_static(c2c_df, missing_cas_df, summary_path, template_path=template_path, write_detailed=False)
-    saved_paths.append(summary_path)
-
-    detail_dir = os.path.join(saving_dir, f"detailed_assessment_{file_stem}_{date_str}")
-    os.makedirs(detail_dir, exist_ok=True)
 
     total_rows = len(c2c_df)
     if total_rows < DETAILED_OVERVIEW_ROW_CAP:
-        detail_path = os.path.join(detail_dir, f"C2C_assessment_detailed_overview_{file_stem}_{date_str}.xlsx")
+        detail_path = os.path.join(detail_dir, f"{name_base}_{file_stem}_{date_str}.xlsx")
         save_detailed_overview_only(c2c_df, detail_path, template_path=template_path)
         saved_paths.append(detail_path)
         return saved_paths
@@ -4919,7 +5000,7 @@ def save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, da
             n_scenarios = df_p[COL_SCENARIO_ID].nunique()
             out_path = os.path.join(
                 detail_dir,
-                f"C2C_assessment_detailed_overview_{prod_label}_scenarios_1-{n_scenarios}_{file_stem}_{date_str}.xlsx",
+                f"{name_base}_{prod_label}_scenarios_1-{n_scenarios}_{file_stem}_{date_str}.xlsx",
             )
             save_detailed_overview_only(df_p, out_path, template_path=template_path)
             saved_paths.append(out_path)
@@ -4929,7 +5010,7 @@ def save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, da
             df_batch = df_p[df_p[COL_SCENARIO_ID].isin(scenario_ids)]
             out_path = os.path.join(
                 detail_dir,
-                f"C2C_assessment_detailed_overview_{prod_label}_scenarios_{start_idx}-{end_idx}_{file_stem}_{date_str}.xlsx",
+                f"{name_base}_{prod_label}_scenarios_{start_idx}-{end_idx}_{file_stem}_{date_str}.xlsx",
             )
             save_detailed_overview_only(df_batch, out_path, template_path=template_path)
             saved_paths.append(out_path)
@@ -4937,55 +5018,56 @@ def save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, da
     return saved_paths
 
 
-def save_c2c_detailed_overview_output(c2c_df, saving_dir, file_name, date_str, template_path=MIXTURE_RULES_TEMPLATE_PATH):
+def save_c2c_assessment_output(
+    c2c_df, missing_cas_df, saving_dir, file_name, date_str, template_path=MIXTURE_RULES_TEMPLATE_PATH,
+    mixture_rules_ran=True, name_base="C2C_assessment", detail_name_base=None
+):
+    """Save the C2C assessment (summary file + separate detailed_overview file(s)) - copied
+    unchanged from MAS_quick_C2C_assessment_static.py (see its docstring for the full
+    file-splitting rationale), plus mixture_rules_ran (see build_overview_df's docstring) -
+    pass False for quick assessment (option C), where c2c_df carries raw per-CAS colours that
+    never went through the mixture-rule calculation.
+
+    name_base is the summary file's prefix (e.g. "C2C_quick_assessment" for option C, default
+    "C2C_assessment" for option B); detail_name_base is the detailed_overview folder+file
+    prefix, defaulting to f"{name_base}_detailed_overview" when not given. Returns the list of
+    saved file paths."""
+    file_stem = os.path.splitext(file_name)[0]
+    if detail_name_base is None:
+        detail_name_base = f"{name_base}_detailed_overview"
+    saved_paths = []
+
+    summary_path = os.path.join(saving_dir, f"{name_base}_{file_stem}_{date_str}.xlsx")
+    save_c2c_assessment_workbook_static(
+        c2c_df, missing_cas_df, summary_path, template_path=template_path, write_detailed=False,
+        mixture_rules_ran=mixture_rules_ran
+    )
+    saved_paths.append(summary_path)
+
+    detail_dir = os.path.join(saving_dir, f"{detail_name_base}_{file_stem}_{date_str}")
+    os.makedirs(detail_dir, exist_ok=True)
+    saved_paths += _save_detailed_overview_files(c2c_df, detail_dir, file_stem, date_str, detail_name_base, template_path)
+
+    return saved_paths
+
+
+def save_c2c_detailed_overview_output(
+    c2c_df, saving_dir, file_name, date_str, template_path=MIXTURE_RULES_TEMPLATE_PATH, name_base="C2C_assessment_detailed_overview"
+):
     """Same file-splitting/naming as save_c2c_assessment_output's detailed_overview half,
-    but WITHOUT also writing its "C2C_assessment_<file>_<date>.xlsx" summary file - for
+    but WITHOUT also writing its "<name_base>_<file>_<date>.xlsx" summary file - for
     run_mixture_rules, where that summary would be redundant with (and wrong relative to,
     since it would show raw per-CAS colours rather than the mixture-rule-computed result)
     the separately-saved mixture-rule summary (save_c2c_assessment_workbook_static on
-    active_scaffold_df). Returns the list of saved detailed_overview file paths."""
+    active_scaffold_df). name_base is the detailed_overview folder+file prefix (e.g.
+    "C2C_percent_assessed_detailed_overview" for option A). Returns the list of saved
+    detailed_overview file paths."""
     file_stem = os.path.splitext(file_name)[0]
-    saved_paths = []
 
-    detail_dir = os.path.join(saving_dir, f"detailed_assessment_{file_stem}_{date_str}")
+    detail_dir = os.path.join(saving_dir, f"{name_base}_{file_stem}_{date_str}")
     os.makedirs(detail_dir, exist_ok=True)
 
-    total_rows = len(c2c_df)
-    if total_rows < DETAILED_OVERVIEW_ROW_CAP:
-        detail_path = os.path.join(detail_dir, f"C2C_assessment_detailed_overview_{file_stem}_{date_str}.xlsx")
-        save_detailed_overview_only(c2c_df, detail_path, template_path=template_path)
-        saved_paths.append(detail_path)
-        return saved_paths
-
-    print(
-        f"detailed_overview would need {total_rows} rows, at or above the {DETAILED_OVERVIEW_ROW_CAP} cap - "
-        f"splitting it into one file per product (and, for any product still too big on its own, further "
-        f"into scenario-range batches), saved under: {detail_dir}"
-    )
-
-    for prod, df_p in c2c_df.groupby(COL_PRODUCT, sort=False):
-        prod_label = _sanitize_filename_part(prod)
-
-        if len(df_p) < DETAILED_OVERVIEW_ROW_CAP:
-            n_scenarios = df_p[COL_SCENARIO_ID].nunique()
-            out_path = os.path.join(
-                detail_dir,
-                f"C2C_assessment_detailed_overview_{prod_label}_scenarios_1-{n_scenarios}_{file_stem}_{date_str}.xlsx",
-            )
-            save_detailed_overview_only(df_p, out_path, template_path=template_path)
-            saved_paths.append(out_path)
-            continue
-
-        for scenario_ids, start_idx, end_idx in _split_scenarios_into_batches(df_p, DETAILED_OVERVIEW_ROW_CAP):
-            df_batch = df_p[df_p[COL_SCENARIO_ID].isin(scenario_ids)]
-            out_path = os.path.join(
-                detail_dir,
-                f"C2C_assessment_detailed_overview_{prod_label}_scenarios_{start_idx}-{end_idx}_{file_stem}_{date_str}.xlsx",
-            )
-            save_detailed_overview_only(df_batch, out_path, template_path=template_path)
-            saved_paths.append(out_path)
-
-    return saved_paths
+    return _save_detailed_overview_files(c2c_df, detail_dir, file_stem, date_str, name_base, template_path)
 
 
 def rename_mixture_rules_endpoints_to_readable(active_scaffold_df):
@@ -5051,7 +5133,7 @@ def run_wint_C2C_mixture_rules():
     file_stem = os.path.splitext(file_name)[0]
     saving_selected = os.path.join(saving_dir, f"selected_scenarios_{time}_{file_stem}.xlsx")
     saving_all_scenarios = os.path.join(saving_dir, f"all_scenarios_{time}_{file_stem}.xlsx")
-    C2C_mixture_rules_saving = os.path.join(saving_dir, f"mixture_rules_{time}_{file_stem}.xlsx")
+    C2C_mixture_rules_saving = os.path.join(saving_dir, f"C2C_assessment_{file_stem}_{time}.xlsx")
 
     print("--------------------------------------------------------------")
     # "overview"/"percentage_assessed"/"risk_assessed" (mixture-rule-computed), summary-only
@@ -5070,7 +5152,7 @@ def run_wint_C2C_mixture_rules():
         print("Saved all scenarios to file: ", saving_all_scenarios)
         # detailed_overview: per-CAS, each chemical's own RAW colour (not the hom-mat
         # mixture-rule result) - same as option A's own output.
-        c2c_assessment_all_scenarios_df = build_c2c_assessment_df(all_scenarios_df, db_path)
+        c2c_assessment_all_scenarios_df = build_c2c_assessment_df(all_scenarios_df, db_path, include_mixture_rule_db_details=True)
         save_c2c_detailed_overview_output(c2c_assessment_all_scenarios_df, saving_dir, file_name, time)
         print("Saved C2C assessment (detailed_overview) for all scenarios under: ", saving_dir)
     print("--------------------------------------------------------------")
@@ -5081,7 +5163,7 @@ def run_wint_C2C_mixture_rules():
         selected_df = build_selected_scenarios_df(df, scenarios, chosen)
         selected_df.to_excel(saving_selected, index=False)
         print("Saved the selected scenarios to file: ", saving_selected)
-        c2c_assessment_selected_scenarios_df = build_c2c_assessment_df(selected_df, db_path)
+        c2c_assessment_selected_scenarios_df = build_c2c_assessment_df(selected_df, db_path, include_mixture_rule_db_details=True)
         cas_list_selected = clean_cas_values(c2c_assessment_selected_scenarios_df["CAS"].tolist()) if "CAS" in c2c_assessment_selected_scenarios_df.columns else []
         _, missing_cas_selected_df = extract_colour_assessment_C2C(cas_list_selected, db_path)
         saved_selected_paths = save_c2c_assessment_output(c2c_assessment_selected_scenarios_df, missing_cas_selected_df, saving_dir, file_name, time)
@@ -5209,7 +5291,10 @@ def run_c2c_assessment_only():
     time = now.strftime("%Y%m%d")
     cas_list_all = clean_cas_values(c2c_assessment_all_scenarios_df["CAS"].tolist()) if "CAS" in c2c_assessment_all_scenarios_df.columns else []
     _, missing_cas_all_df = extract_colour_assessment_C2C(cas_list_all, db_path)
-    saved_paths = save_c2c_assessment_output(c2c_assessment_all_scenarios_df, missing_cas_all_df, saving_dir, file_name, time)
+    saved_paths = save_c2c_assessment_output(
+        c2c_assessment_all_scenarios_df, missing_cas_all_df, saving_dir, file_name, time,
+        mixture_rules_ran=False, name_base="C2C_quick_assessment"
+    )
     for p in saved_paths:
         print("Saved: ", p)
     print("--------------------------------------------------------------")

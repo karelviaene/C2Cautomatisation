@@ -96,11 +96,13 @@ def run_percent_assessed(mas_path, saving_dir, log):
     file_stem = os.path.splitext(file_name)[0]
 
     log("Saving percent-assessed summary (overview/percentage_assessed)...")
-    saving_summary = os.path.join(saving_dir, f"C2C_assessment_percent_assessed_{time_str}_{file_stem}.xlsx")
+    saving_summary = os.path.join(saving_dir, f"C2C_percent_assessed_{file_stem}_{time_str}.xlsx")
     core.save_percent_assessed_workbook(detailed_df, saving_summary, write_detailed=False)
 
     log("Saving detailed_overview...")
-    detailed_paths = core.save_c2c_detailed_overview_output(detailed_df, saving_dir, file_name, time_str)
+    detailed_paths = core.save_c2c_detailed_overview_output(
+        detailed_df, saving_dir, file_name, time_str, name_base="C2C_percent_assessed_detailed_overview"
+    )
 
     log("Saved percent-assessed summary and detailed_overview files.")
 
@@ -145,7 +147,10 @@ def run_quick_assessment(mas_path, saving_dir, db_path, log):
 
     time_str = _timestamp()
     log("Saving C2C assessment (summary + detailed_overview)...")
-    saved_paths = core.save_c2c_assessment_output(c2c_df, missing_cas_df, saving_dir, file_name, time_str)
+    saved_paths = core.save_c2c_assessment_output(
+        c2c_df, missing_cas_df, saving_dir, file_name, time_str,
+        mixture_rules_ran=False, name_base="C2C_quick_assessment"
+    )
     log("Saved C2C assessment summary and detailed_overview files.")
 
     return saved_paths
@@ -195,7 +200,7 @@ def run_mixture_rules(mas_path, saving_dir, db_path, log):
 
     log("Building the detailed per-CAS dataset (this can take a while for large projects)...")
     all_scenarios_df = core.build_selected_scenarios_df(df, scenarios, scenario_ids)
-    detailed_overview_df = core.build_c2c_assessment_df(all_scenarios_df, db_path)
+    detailed_overview_df = core.build_c2c_assessment_df(all_scenarios_df, db_path, include_mixture_rule_db_details=True)
     cas_list_all = (
         core.clean_cas_values(detailed_overview_df["CAS"].tolist())
         if "CAS" in detailed_overview_df.columns else []
@@ -209,7 +214,7 @@ def run_mixture_rules(mas_path, saving_dir, db_path, log):
 
     log("Saving mixture-rule summary (overview/percentage_assessed/risk_assessed)...")
     readable_scaffold_df = core.rename_mixture_rules_endpoints_to_readable(active_scaffold_df)
-    saving_mixture_rules_summary = os.path.join(saving_dir, f"C2C_assessment_mixture_rules_{time_str}_{file_stem}.xlsx")
+    saving_mixture_rules_summary = os.path.join(saving_dir, f"C2C_assessment_{file_stem}_{time_str}.xlsx")
     core.save_c2c_assessment_workbook_static(
         readable_scaffold_df, missing_cas_df, saving_mixture_rules_summary, write_detailed=False
     )
