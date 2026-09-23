@@ -413,44 +413,44 @@ def insert_json_info_to_DB(CnL_json, db_path, target_cas_list):
 
         for target_cas in target_cas_list:
 
-            # Find the entry for the CAS you want
-            entry = next((e for e in data if e.get("casNumber") == target_cas), None)
+            # The API groups its output as {"identifier": <queried CAS>, "results": [...]},
+            # not as a flat entry with "casNumber" at the top level - matching on
+            # "casNumber" here always missed, so every CAS looked like it had no JSON.
+            top = next((e for e in data if e.get("identifier") == target_cas), None)
+            results = top.get("results") if top else None
 
-            if entry is None:
+            if not results:
                 _log(f"CAS {target_cas} not found in JSON.")
                 cas_with_no_json.append(target_cas)
             else:
-                # Set up dictionary to collect all relevant info
+                # A CAS can carry more than one C&L result (e.g. separate registrations
+                # for the same substance) - prefer the one that actually has a
+                # classification for the descriptive fields, and merge hazard classes
+                # across all of them.
+                primary = next((r for r in results if r.get("classification")), results[0])
+
                 sqlinfo = {
-                    "code": entry.get("casNumber"),
-                    "on_cl": "-",
-                    "cas": "-",
-                    "ec": "-",
-                    "name_echachem": "-",
-                    "type_classification": "-",
+                    "code": target_cas,
+                    "on_cl": "Yes",
+                    "cas": primary.get("cas"),
+                    "ec": primary.get("ecNumber"),
+                    "name_echachem": primary.get("name"),
+                    "type_classification": "Harmonized" if any(r.get("isHarmonized") for r in results) else "Self-classification",
                     "hazards": "-"
                 }
 
-                _log(f"Testing for: {entry.get('casNumber')}")
+                _log(f"Testing for: {target_cas}")
 
-                #### ECHA-CHEM C&L from NEXTSDS-API ####
-                if entry.get("found") is False:  # If the chemical was NOT found on C&L
-                    sqlinfo["on_cl"] = "No"
-                else:  # If the chemical was found on C&L
-                    sqlinfo["on_cl"] = "Yes"
-                    sqlinfo["cas"] = entry.get("cas")
-                    sqlinfo["ec"] = entry.get("ecNumber")
-                    sqlinfo["name_echachem"] = entry.get("name")
-
-                    if entry.get("isHarmonized") is True:
-                        sqlinfo["type_classification"] = "Harmonized"
-                    else:
-                        sqlinfo["type_classification"] = "Self-classification"
-
-                    # Safe hazards extraction (prevents crashes if hazards is missing/not a dict)
-                    hazards = entry.get("hazards", {})
-                    if isinstance(hazards, dict):
-                        sqlinfo["hazards"] = hazards.get("hazardClasses", "-")
+                hazard_classes = []
+                for r in results:
+                    hazards = r.get("hazards", {})
+                    if isinstance(hazards, dict) and hazards.get("hazardClasses"):
+                        for h in hazards["hazardClasses"].split(","):
+                            h = h.strip()
+                            if h and h not in hazard_classes:
+                                hazard_classes.append(h)
+                if hazard_classes:
+                    sqlinfo["hazards"] = ", ".join(hazard_classes)
                 #_log(sqlinfo)
 
         #     with open(CnL_json, "r", encoding="utf-8") as f:

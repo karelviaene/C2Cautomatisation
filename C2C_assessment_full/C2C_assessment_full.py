@@ -1485,14 +1485,36 @@ def _worst_case_raw_colour(sub_df, colour_col):
     """Worst raw per-chemical colour (GREEN < YELLOW < GREY < RED) across `sub_df`'s rows
     for `colour_col`, treating a missing/unrecognised value as GREY - the same "missing =
     GREY" fallback convention used by assessment_with_no_mixture_rules's own per-endpoint
-    loop, factored out here so both places share one implementation."""
+    loop, factored out here so both places share one implementation.
+
+    Uses classify_colour()'s substring-search convention (not a strict equality check)
+    because COLOUR_ASSESSMENT_C2C commonly stores a human-annotated value like "Manually
+    set to: Green" rather than the bare word - a strict "== GREEN" match would treat every
+    such annotated row as unrecognised and silently downgrade it to GREY, which previously
+    corrupted this function's result whenever any relevant chemical had an annotated value."""
     if colour_col not in sub_df.columns or sub_df.empty:
         return "GREY"
-    ratings = sub_df[colour_col].astype(str).str.strip().str.upper()
-    ratings = ratings.where(ratings.isin(_NO_MIXTURE_RULES_RANK), "GREY")
+    ratings = sub_df[colour_col].apply(classify_colour)
     if ratings.empty:
         return "GREY"
     return max(ratings, key=lambda x: _NO_MIXTURE_RULES_RANK[x])
+
+
+def _normalize_corr_rating(value):
+    """Extract a clean RED/YELLOW/GREEN/GREY word from a raw COLOUR_ASSESSMENT_C2C corrosion/
+    irritation value using classify_colour()'s substring-search convention (so an annotated
+    "Manually set to: X" value, or any wrong-case bare word, is read correctly) - used by
+    skin_corr_mixture_rule_c2c/eye_corr_mixture_rule_c2c/resp_corr_rule_c2c before their own
+    exact-match comparisons, which would otherwise silently treat an annotated ingredient as
+    absent from every RED/GREY/YELLOW bucket rather than counting its real rating.
+
+    Unlike classify_colour(), a genuinely missing/NaN value is passed through unchanged
+    (not promoted to "GREY") - corr_n_irr_mixture_rule_c2c's own completeness check relies on
+    telling "no rating at all" apart from an actual GREY rating to pick the right not-full-
+    composition label."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return np.nan
+    return classify_colour(value)
 
 
 def _apply_incomplete_comp_fallback(result_df, df_product, colour_df):
@@ -2018,7 +2040,7 @@ def skin_corr_mixture_rule_c2c(df_product, df_toxicity_info):
         d = df.copy()
 
         d[conc_col] = pd.to_numeric(d[conc_col], errors="coerce").fillna(0)
-        d[rating_col] = d[rating_col].astype(str).str.strip().str.upper()
+        d[rating_col] = d[rating_col].apply(_normalize_corr_rating)
 
         red_sum_ge_1pct = d.loc[
             (d[rating_col] == "RED") & (d[conc_col] >= 0.01),
@@ -2090,7 +2112,7 @@ def eye_corr_mixture_rule_c2c(df_product, df_toxicity_info):
         d = df.copy()
 
         d[conc_col] = pd.to_numeric(d[conc_col], errors="coerce").fillna(0)
-        d[rating_col] = d[rating_col].astype(str).str.strip().str.upper()
+        d[rating_col] = d[rating_col].apply(_normalize_corr_rating)
 
         red_sum_ge_1pct = d.loc[
             (d[rating_col] == "RED") & (d[conc_col] >= 0.01),
@@ -2161,7 +2183,8 @@ def resp_corr_rule_c2c(df_product, df_toxicity_info):
         # homogeneous material's result in this same call - the completeness check in
         # corr_n_irr_mixture_rule_c2c is what actually decides whether to trust this value.
         worst_rank = max(rank.values()) + 1
-        rating = min(df[rating_col], key=lambda x: rank.get(x, worst_rank))
+        normalized_ratings = df[rating_col].apply(_normalize_corr_rating)
+        rating = min(normalized_ratings, key=lambda x: rank.get(x, worst_rank))
         resp_corr_for_each_material.append({
             "Product": product_val,
             "hom_material": hom_material,
@@ -3404,8 +3427,8 @@ def build_mixture_rules_toxicity_info_from_db(cas_list, db_path, colour_df=None)
         "sensitization C2C assessment",
         "fish toxicity C2C assessment", "invertebrate toxicity C2C assessment", "algae toxicity C2C assessment",
     ]
-    empty_columns += [f"SCL - {label} - value" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
-    empty_columns += [f"SCL - {label} -> Yes / No" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
+    empty_columns += [f"SCL {label} value" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
+    empty_columns += [f"Does SCL {label} exist" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
 
     cas_list = clean_cas_values(cas_list)
     if not cas_list:
@@ -3544,8 +3567,8 @@ def build_mixture_rules_toxicity_info_from_db(cas_list, db_path, colour_df=None)
         lower_col = f"{label} - Lower Limit: (%)"
         upper_col = f"{label} - Upper Limit: (%)"
         present_cols = [c for c in [lower_col, upper_col] if c in df.columns]
-        value_col = f"SCL - {label} - value"
-        flag_col = f"SCL - {label} -> Yes / No"
+        value_col = f"SCL {label} value"
+        flag_col = f"Does SCL {label} exist"
         if present_cols:
             df[value_col] = pd.to_numeric(df[present_cols].min(axis=1), errors="coerce")
         else:
@@ -3625,8 +3648,8 @@ def assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=No
     material, a chemical is "relevant" if:
     - this endpoint has its OWN SCL for that specific chemical (SCONCLIM's
       "<label> - Lower/Upper Limit: (%)" columns, detected dynamically - see
-      build_mixture_rules_toxicity_info_from_db's "SCL - <label> - value"/"SCL - <label> ->
-      Yes / No" columns), in which case the chemical's concentration is compared ONLY
+      build_mixture_rules_toxicity_info_from_db's "SCL <label> value"/"Does SCL <label>
+      exist" columns), in which case the chemical's concentration is compared ONLY
       against that SCL (never against the flat cut-off too - an SCL replaces it, it doesn't
       add another way in);
     - otherwise (no SCL exists for this endpoint at all, or this particular chemical has
@@ -3641,7 +3664,7 @@ def assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=No
     build_mixture_rules_toxicity_info_from_db's identical parameter for the rationale.
     `toxicity_info_df` similarly lets a caller that already built
     build_mixture_rules_toxicity_info_from_db(cas_list, db_path) pass it in (it's where the
-    "SCL - <label> - value" columns this function reads come from) instead of rebuilding it
+    "SCL <label> value" columns this function reads come from) instead of rebuilding it
     here.
     """
     if colour_df is None:
@@ -3653,7 +3676,7 @@ def assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=No
     d["conc_hom_mat"] = d[["min_contribution_hom_mat", "max_contribution_hom_mat"]].max(axis=1)
     d = d.merge(colour_df, on="CAS", how="left")
 
-    scl_value_cols = [f"SCL - {label} - value" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
+    scl_value_cols = [f"SCL {label} value" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
     scl_value_cols = [c for c in scl_value_cols if c in toxicity_info_df.columns]
     if scl_value_cols:
         d = d.merge(toxicity_info_df[["CAS"] + scl_value_cols], on="CAS", how="left")
@@ -3671,7 +3694,7 @@ def assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=No
             out_col = f"C2C {label}"
 
             base_relevant = (sub["CAS"] != "not assessed") & sub["conc_hom_mat"].notna()
-            value_col = f"SCL - {label} - value"
+            value_col = f"SCL {label} value"
             if value_col in sub.columns:
                 own_scl_fraction = pd.to_numeric(sub[value_col], errors="coerce") / 100.0
                 has_own_scl = own_scl_fraction.notna()
