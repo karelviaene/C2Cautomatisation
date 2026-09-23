@@ -26,7 +26,8 @@ APP_BG = "#ffffff"
 TEXT = "#000000"
 ACCENT = "#16a34a"
 GOOD = "#16a34a"
-BAD = "#000000"
+# --- Unused: no remaining references as of 2026-09 cleanup, kept for reference ---
+# BAD = "#000000"
 
 # Remembers the last-used save folder (and MAS/DB file paths) across runs of the app - same
 # mechanism as MAS_quick_C2C_assessment_app.py's own load_config/save_config, but its own
@@ -35,6 +36,7 @@ CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".c2c_assessment_full_app_co
 
 
 def load_config():
+    """Load the app's remembered-paths config (last MAS/DB file and save folder) from CONFIG_PATH, returning {} if it doesn't exist or can't be read."""
     try:
         with open(CONFIG_PATH) as f:
             return json.load(f)
@@ -43,6 +45,7 @@ def load_config():
 
 
 def save_config(cfg):
+    """Persist the app's remembered-paths config dict to CONFIG_PATH, silently ignoring write failures."""
     try:
         with open(CONFIG_PATH, "w") as f:
             json.dump(cfg, f)
@@ -51,6 +54,7 @@ def save_config(cfg):
 
 
 def _timestamp():
+    """Return today's date as a "YYYYMMDD" string, used to timestamp output file names."""
     return datetime.now().strftime("%Y%m%d")
 
 
@@ -235,6 +239,7 @@ class MixtureRulesApp:
     }
 
     def __init__(self, root):
+        """Build the app window: mode-selection buttons, styling, remembered-path restoration, the (initially empty) inputs frame, the Run button, and the log text box."""
         self.root = root
         root.title("C2C Screener")
         root.configure(bg=APP_BG)
@@ -300,6 +305,7 @@ class MixtureRulesApp:
         self.log_box.pack(fill="both", expand=True, padx=20, pady=(0, 16))
 
     def log(self, message):
+        """Append `message` to the log text box on the Tk main thread (safe to call from the background worker thread)."""
         def _write():
             self.log_box.configure(state="normal")
             self.log_box.insert("end", message + "\n")
@@ -314,10 +320,12 @@ class MixtureRulesApp:
         return path if path and check(path) else ""
 
     def _remember(self, key, path):
+        """Store `path` under `key` in the in-memory config and persist it to disk."""
         self._config[key] = path
         save_config(self._config)
 
     def select_mode(self, key):
+        """Switch the UI to the chosen assessment mode: show its description, rebuild the input rows (adding the database-file row only if that mode needs one), and enable the Run button."""
         self.selected_mode = key
         cfg = self.MODES[key]
         self.desc_label.configure(text=cfg["description"])
@@ -333,6 +341,7 @@ class MixtureRulesApp:
         self.run_button.configure(state="normal")
 
     def _add_path_row(self, parent, label_text, var, browse_command):
+        """Add a labeled path-entry row (label, text entry bound to `var`, and a "Browse..." button) to `parent`."""
         row = tk.Frame(parent, bg=APP_BG)
         row.pack(fill="x", pady=3)
         tk.Label(row, text=label_text, width=14, anchor="w", bg=APP_BG, fg=TEXT).pack(side="left")
@@ -340,6 +349,7 @@ class MixtureRulesApp:
         tk.Button(row, text="Browse...", command=browse_command).pack(side="left")
 
     def browse_mas_file(self):
+        """Prompt for the MAS Excel file, store the chosen path, remember it, and default the save folder to its containing directory if none is set yet."""
         path = filedialog.askopenfilename(title="Select the MAS Excel file", filetypes=[("Excel files", "*.xlsx *.xls")])
         if path:
             self.mas_path.set(path)
@@ -349,18 +359,21 @@ class MixtureRulesApp:
                 self._remember("last_folder", os.path.dirname(path))
 
     def browse_folder(self):
+        """Prompt for the output save folder and remember the chosen path."""
         path = filedialog.askdirectory(title="Select the folder to save output files in")
         if path:
             self.saving_dir.set(path)
             self._remember("last_folder", path)
 
     def browse_db_file(self):
+        """Prompt for the SQLite database file and remember the chosen path."""
         path = filedialog.askopenfilename(title="Select the database file", filetypes=[("Database files", "*.db *.sqlite *.sqlite3"), ("All files", "*.*")])
         if path:
             self.db_path.set(path)
             self._remember("last_db_file", path)
 
     def run_selected(self):
+        """Validate the required inputs for the selected mode, clear the log, and kick off that mode's pipeline in a background thread."""
         mode = self.selected_mode
         cfg = self.MODES[mode]
 
@@ -384,6 +397,7 @@ class MixtureRulesApp:
         thread.start()
 
     def _run_in_background(self, mode):
+        """Worker-thread entry point: run the selected mode's pipeline function, logging errors and re-enabling the Run button on failure, or logging the output paths and showing a completion dialog on success."""
         try:
             if mode == "percent":
                 outputs = run_percent_assessed(self.mas_path.get(), self.saving_dir.get(), self.log)
@@ -406,6 +420,7 @@ class MixtureRulesApp:
 
 
 def main():
+    """Launch the tkinter app: create the root window, build the MixtureRulesApp UI, and start the main loop."""
     root = tk.Tk()
     MixtureRulesApp(root)
     root.mainloop()

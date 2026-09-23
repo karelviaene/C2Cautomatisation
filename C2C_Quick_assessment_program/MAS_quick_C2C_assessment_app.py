@@ -1,9 +1,9 @@
 ### Quick C2C Assessment - desktop app
-### A small tkinter window wrapping MAS_quick_C2C_assessment_static.py's pipeline:
+### A small tkinter window wrapping MAS_quick_C2C_assessment_current.py's pipeline:
 ### pick the 3 inputs inline (no instructional pop-ups, just Browse buttons and a
 ### path field), click Run, watch a bouncing magnifying glass while it works, and
 ### get a "Done!" screen with confetti once the files are saved.
-### Reuses MAS_quick_C2C_assessment_static.py's logic by import (that file has a
+### Reuses MAS_quick_C2C_assessment_current.py's logic by import (that file has a
 ### __main__ guard, so importing it does not auto-run anything) rather than
 ### duplicating it - keep the two in sync if the pipeline itself changes.
 
@@ -21,7 +21,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import MAS_quick_C2C_assessment_static as core
+import MAS_quick_C2C_assessment_current as core
 
 APP_BG = "#f4f6f8"
 ACCENT = "#2563eb"
