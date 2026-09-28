@@ -339,6 +339,26 @@ def checking_if_CAS_exists(CASall, db_path):
             connection.close()
 
     return found, not_found
+def find_files_without_cas_or_ec(folder_excels):
+    """Scans folder_excels once and returns the filenames that look like CPS files
+    (contain "CAS ...xlsx/.xlsm") but have no parseable CAS or EC number in their name.
+    Used to print a single, run-level summary instead of every folder-scanning function
+    below reporting the same files on its own."""
+    file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
+    cas_pattern = re.compile(r'CAS (\d{2,7}[-‐-–—]\d{2,3}[-‐-–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
+    ec_pattern = re.compile(r'(EC \d{2,7}[-‐-–—]\d{3}[-‐-–—]\d{1})')
+
+    skipped_files = []
+    for filename in os.listdir(folder_excels):
+        if filename.startswith("~$"):
+            continue  # Excel's own temp lock file for a workbook that's currently open - not real data
+        full_path = os.path.join(folder_excels, filename)
+        if os.path.isfile(full_path) and file_pattern.search(filename):
+            if not cas_pattern.search(filename) and not ec_pattern.search(filename):
+                skipped_files.append(filename)
+    return skipped_files
+
+
 def check_if_excel_is_in_folder(folder_excels, CAS_list):
     """checks if the CAS in the list is in the CPS folder with CPS excels
     folder_excels = folder with CPS files
@@ -351,9 +371,12 @@ def check_if_excel_is_in_folder(folder_excels, CAS_list):
 
     file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
     cas_pattern = re.compile(r'CAS (\d{2,7}[-‐-–—]\d{2,3}[-‐-–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
-    ec_pattern = re.compile(r'EC (\d{2,7}[-‐-–—]\d{3}[-‐-–—]\d{1})')
+    # Captures the "EC " prefix along with the number so this matches the same format
+    # used in the CAS-list Excel's "CAS" column (e.g. "EC 947-819-8") - previously this
+    # only captured the digits, which could never equal an "EC ..."-prefixed list entry.
+    ec_pattern = re.compile(r'(EC \d{2,7}[-‐-–—]\d{3}[-‐-–—]\d{1})')
 
-    # collect all inventory numbers (CAS) found in the folder
+    # collect all inventory numbers (CAS or EC) found in the folder
     inv_in_folder = set()
 
     for filename in os.listdir(folder_excels):
@@ -373,8 +396,12 @@ def check_if_excel_is_in_folder(folder_excels, CAS_list):
                     match_inv = ec_pattern.search(filename)
                     if match_inv:
                         inv_number = match_inv.group(1)
-                    else:
-                        _log(f"Issue with: {filename}")
+                        # was missing: EC matches were extracted but never added to
+                        # inv_in_folder, so an EC-only file always looked "not in folder"
+                        inv_in_folder.add(inv_number)
+                    # else: no CAS/EC number in this filename - reported once, run-level,
+                    # via find_files_without_cas_or_ec() instead of here (was causing the
+                    # same file list to be logged repeatedly, once per folder scan).
 
     # compare input CAS_list against what was found in folder
     for cas in CAS_list:
@@ -598,7 +625,10 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
         file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
         cas_pattern = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
         cas_pattern_strict = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})', re.IGNORECASE)
-        ec_pattern = re.compile(r'EC (\d{2,7}[-‐‑–—]\d{3}[-‐‑–—]\d{1})')
+        # Captures the "EC " prefix along with the number so this matches the same format
+        # used in the CAS-list Excel's "CAS" column (e.g. "EC 947-819-8") - previously this
+        # only captured the digits, which could never equal an "EC ..."-prefixed list entry.
+        ec_pattern = re.compile(r'(EC \d{2,7}[-‐‑–—]\d{3}[-‐‑–—]\d{1})')
 
         for filename in os.listdir(folder_excels):
             if filename.startswith("~$"):
@@ -614,9 +644,6 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
 
             # Extract CAS or EC
             match_inv = cas_pattern.search(filename)
-            if match_inv is None:
-                _log("There should be something here. Please check.")
-
             if match_inv:
                 inv_number = match_inv.group(1)
                 comments = "CAS"
@@ -628,7 +655,8 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
             else:
                 match_inv = ec_pattern.search(filename)
                 if not match_inv:
-                    _log(f"Cannot extract CAS/EC from: {filename}")
+                    # no CAS/EC number in this filename - reported once, run-level, via
+                    # find_files_without_cas_or_ec() instead of here.
                     continue
                 inv_number = match_inv.group(1)
                 comments = "EC"
@@ -690,7 +718,6 @@ def is_DB_data_up_to_date_with_excel(db_path, folder_excels, CAS_list):
                                 _log(f"{inv_number}: NO ACTION NEEDED. CAS is up to date: DB {db_last_update} >= file {last_update}.")
                     except ValueError:
                         _log(f"{inv_number}: WRONG DATE FORMAT: Invalid DB LastUpdate format ({db_last_update})")
-
 
         return excel_files_that_need_updating, CAS_older_than_3_years
 
@@ -1913,7 +1940,10 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
         file_pattern = re.compile(r'CAS (.*?)\.(xlsx|xlsm)$')
         cas_pattern = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})(.*?)\.(xlsx|xlsm)$', re.IGNORECASE)
         cas_pattern_strict = re.compile(r'CAS (\d{2,7}[-‐‑–—]\d{2,3}[-‐‑–—]\d{1})', re.IGNORECASE)
-        ec_pattern = re.compile(r'EC (\d{2,7}[-‐‑–—]\d{3}[-‐‑–—]\d{1})')
+        # Captures the "EC " prefix along with the number so this matches the same format
+        # used in the CAS-list Excel's "CAS" column (e.g. "EC 947-819-8") - previously this
+        # only captured the digits, which could never equal an "EC ..."-prefixed list entry.
+        ec_pattern = re.compile(r'(EC \d{2,7}[-‐‑–—]\d{3}[-‐‑–—]\d{1})')
 
         # Loop through Excel files with CAS number and add their info from the template
         for filename in os.listdir(folder_excels):
@@ -1942,7 +1972,8 @@ def extract_info_form_excel_to_DB(db_path, folder_excels, CAS_needing_DB_update)
             else:
                 match_inv = ec_pattern.search(filename)
                 if not match_inv:
-                    _log(f"Cannot extract CAS/EC from: {filename}")
+                    # no CAS/EC number in this filename - reported once, run-level, via
+                    # find_files_without_cas_or_ec() instead of here.
                     continue
                 inv_number = match_inv.group(1)
                 comments = "EC"
@@ -3638,14 +3669,16 @@ def derive_paths(db_path):
     }
 
 
-def run_cas_screening(cas_excel_path, db_path, use_cps_folder=False):
+def run_cas_screening(cas_excel_path, db_path, use_cps_folder=False, check_cnl=True):
     """Runs the full 'screen selected CAS' pipeline. Returns a dict with all the result lists/values
     the source computes so a GUI can show a summary.
     cas_excel_path: path to a CAS excel (ignored when use_cps_folder=True - pass None or "").
     use_cps_folder: when True, builds the CAS list from every "CAS <number> ...xlsx/.xlsm" file
     already present in the database's CPS folder instead of from an uploaded excel - useful for
     rebuilding a database from scratch using exactly the CPS files on disk, without carrying over
-    stray/fake CAS numbers that only ever existed in a previous database."""
+    stray/fake CAS numbers that only ever existed in a previous database.
+    check_cnl: when False, skips calling the ECHA CnL API entirely and skips the CnL-info-into-DB
+    step at the end - everything else (DB backup, DB<->Excel sync, report export) still runs."""
     CAS_not_in_DB_but_in_excel = []
     CAS_not_in_DB_and_not_in_excel = []
     CAS_older_than_3_years = []
@@ -3675,20 +3708,30 @@ def run_cas_screening(cas_excel_path, db_path, use_cps_folder=False):
         if not CASall:
             raise ValueError("No usable CAS numbers were found - nothing to screen.")
 
+        # Report untracked CPS files (no CAS/EC number in filename) exactly once per run,
+        # instead of each folder-scanning step below reporting the same files again.
+        untracked_files = find_files_without_cas_or_ec(folder_excels)
+        if untracked_files:
+            _log(f"{len(untracked_files)} file(s) in the CPS folder have no CAS/EC number in their name and are not tracked: {', '.join(untracked_files)}")
+
         ### Beginning: before starting download all available json files and make a backup of the DB
         _log(":blue[Creating a DB back up.]")
         make_a_backup(db_path, db_backup_for_saving)
         _log(":green[Back up complete.]")
         # json files download (first step to get new CnL info):
-        _log(":blue[Searching CnL website.]")
-        CnL_json = check_json(CASall, API_key, save_json_dirr)
-        # NOTE: check_json always returns a list (possibly empty), never None - the
-        # original `if CnL_json is None:` never fired, so the success message never
-        # showed. Fixed to report success/failure based on whether data came back.
-        if CnL_json:
-            _log(f":green[CnL extracted for: {', '.join(CASall)}.]")
+        if check_cnl:
+            _log(":blue[Searching CnL website.]")
+            CnL_json = check_json(CASall, API_key, save_json_dirr)
+            # NOTE: check_json always returns a list (possibly empty), never None - the
+            # original `if CnL_json is None:` never fired, so the success message never
+            # showed. Fixed to report success/failure based on whether data came back.
+            if CnL_json:
+                _log(f":green[CnL extracted for: {', '.join(CASall)}.]")
+            else:
+                _log(":red[No CnL info could be retrieved (empty result from the API).]")
         else:
-            _log(":red[No CnL info could be retrieved (empty result from the API).]")
+            _log(":blue[Skipping CnL website check (unchecked).]")
+            CnL_json = []
 
         ### if the CAS exists and make a list with existing cas and the ones that have to be created
         # found => CAS exists in DB
@@ -3766,21 +3809,25 @@ def run_cas_screening(cas_excel_path, db_path, use_cps_folder=False):
         ### Checking info from ECHA CnL
         # add together all the CAS for which CnL will be checked
         all_CAS_to_check_CnL = found + CAS_not_in_DB_but_in_excel
-        _log(f":blue[CnL info will be checked]")
-        _log(f"CnL info will be checked for: {', '.join(all_CAS_to_check_CnL)}")
-        cas_hazards_list, cas_with_no_json = insert_json_info_to_DB(CnL_json, db_path, all_CAS_to_check_CnL)
-        cas_hazards_updated = list(cas_hazards_list.keys())
-        cas_with_up_to_date_info = [cas for cas in all_CAS_to_check_CnL if cas not in cas_hazards_updated]
-        cas_with_up_to_date_info = [cas for cas in cas_with_up_to_date_info if cas not in cas_with_no_json]
-        if cas_with_no_json:
-            _log(f":red[Data not checked for : {', '.join(cas_with_no_json)} (no info CnL file)]")
-        if cas_with_up_to_date_info:
-            _log(f"CAS that have CnL info up to date: {', '.join(cas_with_up_to_date_info)}")
-        if cas_hazards_updated:
-            _log(f":red[CnL info changed for: {', '.join(cas_hazards_updated)}]")
-            for k, v in cas_hazards_list.items():
-                hazards_text = ', '.join(v) if v else '(none)'
-                _log(f":red[{k}: {hazards_text}]")
+        if check_cnl:
+            _log(f":blue[CnL info will be checked]")
+            _log(f"CnL info will be checked for: {', '.join(all_CAS_to_check_CnL)}")
+            cas_hazards_list, cas_with_no_json = insert_json_info_to_DB(CnL_json, db_path, all_CAS_to_check_CnL)
+            cas_hazards_updated = list(cas_hazards_list.keys())
+            cas_with_up_to_date_info = [cas for cas in all_CAS_to_check_CnL if cas not in cas_hazards_updated]
+            cas_with_up_to_date_info = [cas for cas in cas_with_up_to_date_info if cas not in cas_with_no_json]
+            if cas_with_no_json:
+                _log(f":red[Data not checked for : {', '.join(cas_with_no_json)} (no info CnL file)]")
+            if cas_with_up_to_date_info:
+                _log(f"CAS that have CnL info up to date: {', '.join(cas_with_up_to_date_info)}")
+            if cas_hazards_updated:
+                _log(f":red[CnL info changed for: {', '.join(cas_hazards_updated)}]")
+                for k, v in cas_hazards_list.items():
+                    hazards_text = ', '.join(v) if v else '(none)'
+                    _log(f":red[{k}: {hazards_text}]")
+        else:
+            _log(":blue[Skipping CnL info update in DB (unchecked).]")
+            cas_hazards_list, cas_with_no_json, cas_with_up_to_date_info = {}, [], []
 
         out_file = make_cas_report_excel(
             folder= folder_for_saving_excel_exports,

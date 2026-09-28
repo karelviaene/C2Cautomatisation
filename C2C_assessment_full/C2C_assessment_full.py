@@ -3019,20 +3019,29 @@ def mixture_rules_C2C_assessment_from_db(df_product, db_path):
 
     return result
 #################################################################
-### Filter out placeholder/invalid CAS values before querying the DB
+### Filter out placeholder/invalid CAS/EC values before querying the DB
 CAS_NUMBER_PATTERN = re.compile(r"^\d{2,7}-\d{2}-\d$")
+# EC (European Community) number, e.g. "EC 430-150-6" - the DB's own `ref` columns store an
+# EC-numbered substance with this exact literal "EC " prefix (confirmed against the
+# production DB), so a substance identified only by its EC number (no CAS available) can
+# still be looked up, unmodified, through the same cas_list every DB query already builds.
+EC_NUMBER_PATTERN = re.compile(r"^EC \d{3}-\d{3}-\d$")
 
 def is_valid_cas_number(cas_str):
     """Check the CAS Registry Number format (digits-digits-checkdigit), e.g. 71-43-2."""
     return bool(CAS_NUMBER_PATTERN.match(cas_str))
 
+def is_valid_ec_number(cas_str):
+    """Check the EC number format the DB expects, e.g. "EC 430-150-6" - see EC_NUMBER_PATTERN."""
+    return bool(EC_NUMBER_PATTERN.match(cas_str))
+
 def clean_cas_values(cas_list):
     """
-    Filter a list of CAS values down to real CAS numbers only, dropping
-    anything that isn't a valid CAS Registry Number format - missing
-    values (NaN, None), placeholders ("not assessed", "no cas", ""),
-    and free-text material names (e.g. "wood", "steel"). Also
-    de-duplicates while preserving order.
+    Filter a list of CAS/EC values down to real, DB-queryable identifiers only, dropping
+    anything that isn't a valid CAS Registry Number (e.g. "71-43-2") or EC number (e.g.
+    "EC 430-150-6") format - missing values (NaN, None), placeholders ("not assessed", "no
+    cas", ""), and free-text material names (e.g. "wood", "steel"). Also de-duplicates
+    while preserving order.
     """
     cleaned = []
     seen = set()
@@ -3040,7 +3049,7 @@ def clean_cas_values(cas_list):
         if cas is None or (isinstance(cas, float) and pd.isna(cas)):
             continue
         cas_str = str(cas).strip()
-        if not is_valid_cas_number(cas_str):
+        if not (is_valid_cas_number(cas_str) or is_valid_ec_number(cas_str)):
             continue
         if cas_str not in seen:
             seen.add(cas_str)

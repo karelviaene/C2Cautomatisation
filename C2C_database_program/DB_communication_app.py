@@ -146,6 +146,14 @@ class App(tk.Tk):
         )
         self.db_row.pack(fill="x", pady=4)
 
+        self.check_cnl_var = tk.BooleanVar(value=True)
+        self.check_cnl_check = ttk.Checkbutton(
+            outer,
+            text="Check CnL data via API",
+            variable=self.check_cnl_var,
+        )
+        self.check_cnl_check.pack(anchor="w", pady=(0, 4))
+
         btn_row = ttk.Frame(outer)
         btn_row.pack(fill="x", pady=(12, 8))
         self.run_button = ttk.Button(btn_row, text="Run CAS Screening", command=self._on_run_screening)
@@ -345,6 +353,7 @@ class App(tk.Tk):
         if self._running:
             return
         use_cps_folder = self.use_cps_folder_var.get()
+        check_cnl = self.check_cnl_var.get()
         cas_path = self.cas_row.get()
         db_path = self.db_row.get()
         if not db_path or (not use_cps_folder and not cas_path):
@@ -353,14 +362,14 @@ class App(tk.Tk):
 
         self._begin_run()
         thread = threading.Thread(
-            target=self._run_screening_worker, args=(cas_path, db_path, use_cps_folder), daemon=True
+            target=self._run_screening_worker, args=(cas_path, db_path, use_cps_folder, check_cnl), daemon=True
         )
         thread.start()
 
-    def _run_screening_worker(self, cas_path, db_path, use_cps_folder):
+    def _run_screening_worker(self, cas_path, db_path, use_cps_folder, check_cnl):
         try:
             db_path = core.validate_db_path(db_path)
-            result = core.run_cas_screening(cas_path, db_path, use_cps_folder=use_cps_folder)
+            result = core.run_cas_screening(cas_path, db_path, use_cps_folder=use_cps_folder, check_cnl=check_cnl)
             self.after(0, self._on_screening_success, result)
         except Exception as e:
             tb = traceback.format_exc()
