@@ -12,7 +12,7 @@ import contextlib
 from datetime import datetime
 
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import MAS_generation as core
@@ -91,7 +91,7 @@ def run_pipeline(mas_path, output_path, max_tier, choice, log):
     log("Saving the merged excel file...")
     core.join_to_excel(final_df, output_path)
     log(f"Saved: {output_path}")
-    return output_path, reached_tier
+    return final_df, output_path, reached_tier
 
 
 class PathRow(ttk.Frame):
@@ -143,6 +143,9 @@ class App(tk.Tk):
         self._confetti_job = None
         self._running = False
         self._config = load_config()
+        self._last_final_df = None
+        self._last_max_tier = None
+        self._last_output_path = None
 
         outer = ttk.Frame(self, padding=16)
         outer.pack(fill="both", expand=True)
@@ -198,6 +201,10 @@ class App(tk.Tk):
         btn_row.pack(fill="x", pady=(12, 8))
         self.run_button = ttk.Button(btn_row, text="Run Merge", command=self._on_run)
         self.run_button.pack(side="left")
+        self.export_cas_button = ttk.Button(
+            btn_row, text="Export unique CAS list...", command=self._on_export_cas, state="disabled",
+        )
+        self.export_cas_button.pack(side="left", padx=(8, 0))
         self.status_label = ttk.Label(btn_row, text="Idle", foreground="#555")
         self.status_label.pack(side="left", padx=12)
 
@@ -349,6 +356,9 @@ class App(tk.Tk):
 
         self._running = True
         self.run_button.configure(state="disabled")
+        # disabled for the duration of this run so a click can't export a stale
+        # dataframe/path left over from a previous merge while this one is in flight
+        self.export_cas_button.configure(state="disabled")
         self.status_label.configure(text="Running...", foreground=ACCENT)
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
@@ -360,16 +370,20 @@ class App(tk.Tk):
 
     def _worker(self, mas_path, output_path, max_tier, choice):
         try:
-            saved_path, reached_tier = run_pipeline(mas_path, output_path, max_tier, choice, self._log_threadsafe)
-            self.after(0, self._on_success, saved_path, reached_tier, max_tier)
+            final_df, saved_path, reached_tier = run_pipeline(mas_path, output_path, max_tier, choice, self._log_threadsafe)
+            self.after(0, self._on_success, final_df, saved_path, reached_tier, max_tier)
         except Exception as e:
             tb = traceback.format_exc()
             self.after(0, self._on_failure, str(e), tb)
 
-    def _on_success(self, saved_path, reached_tier, max_tier):
+    def _on_success(self, final_df, saved_path, reached_tier, max_tier):
         self._running = False
         self._stop_spinner()
         self.run_button.configure(state="normal")
+        self._last_final_df = final_df
+        self._last_max_tier = max_tier
+        self._last_output_path = saved_path
+        self.export_cas_button.configure(state="normal")
         if reached_tier < max_tier:
             self.status_label.configure(
                 text=f"Done, but only reached Tier {reached_tier} of {max_tier} - a tier sheet was missing. Check the log.",
@@ -382,10 +396,42 @@ class App(tk.Tk):
             self._log(f"\nFinished. Saved to {saved_path}")
             self._start_confetti()
 
+    def _on_export_cas(self):
+        if self._last_final_df is None:
+            return
+        mas_name = os.path.splitext(os.path.basename(self._last_output_path))[0]
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        save_dir = os.path.dirname(self._last_output_path)
+        base_name = f"CAS_list_{mas_name}_{date_str}"
+        # no save dialog is shown, so pick a name that doesn't clobber a CAS list
+        # already exported today for this same merged file
+        output_path = os.path.join(save_dir, base_name + ".xlsx")
+        n = 2
+        while os.path.exists(output_path):
+            output_path = os.path.join(save_dir, f"{base_name} ({n}).xlsx")
+            n += 1
+        try:
+            cas_df = core.export_unique_cas(self._last_final_df, self._last_max_tier, output_path)
+        except KeyError as e:
+            messagebox.showerror("No CAS columns found", str(e))
+            return
+        except Exception as e:
+            messagebox.showerror("Export failed", f"Could not save the unique CAS list:\n{e}")
+            return
+        self._log(f"\nSaved {len(cas_df)} unique CAS to {output_path}")
+        messagebox.showinfo("Unique CAS list saved", f"Saved {len(cas_df)} unique CAS to:\n{output_path}")
+
     def _on_failure(self, error_message, tb):
         self._running = False
         self._stop_spinner()
         self.run_button.configure(state="normal")
+        # a failed merge invalidates whatever the form currently shows as the
+        # merge config, so don't leave a previous run's dataframe/path exportable
+        # under it - force a fresh successful merge before exporting again
+        self._last_final_df = None
+        self._last_max_tier = None
+        self._last_output_path = None
+        self.export_cas_button.configure(state="disabled")
         self.status_label.configure(text="Failed - see log below.", foreground=BAD)
         self._log(f"\n[ERROR] {error_message}\n{tb}")
         self._draw_error(error_message)

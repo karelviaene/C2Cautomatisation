@@ -1,5 +1,6 @@
 import pandas as pd
 import itertools
+import re
 import threading
 import time
 import uuid
@@ -331,6 +332,57 @@ def join_to_excel(final_df, output_file):
             worksheet.set_column(i, i, 20)
 
     # print(f"File saved to: {output_file}")
+### export unique CAS numbers across all "CAS Tier N" columns
+def export_unique_cas(final_df, max_tier, output_file):
+    """
+    Collects every value found in the "CAS Tier 1", "CAS Tier 2", ... "CAS Tier
+    {max_tier}" columns of the merged dataframe, keeps only the unique ones
+    (in first-seen order), and writes them to an Excel file with header "CAS"
+    in cell A1 and one CAS per row below it.
+
+    Values are exported exactly as they appear in the source sheets - no
+    stripping, case-folding, or other normalization - so anything other than
+    a CAS number that was written in one of those columns is exported as-is
+    too. Blank cells (including empty/whitespace-only strings) and "not
+    assessed" entries (case-insensitive) are excluded.
+
+    Matches "CAS Tier N" columns even when a tier-transition sheet carried
+    forward its own copy of that column and the merge suffixed it (the same
+    collision join_tier_sheets already handles for "Tier N Material"/"Tier N
+    Supplier"), so a duplicate doesn't silently drop that tier's CAS values.
+    """
+    cas_column_pattern = re.compile(r"^CAS Tier (\d+)(?:_T\d+)?$")
+    cas_columns = [
+        col for col in final_df.columns
+        if (m := cas_column_pattern.match(col)) and 1 <= int(m.group(1)) <= max_tier
+    ]
+
+    if not cas_columns:
+        raise KeyError(f"No 'CAS Tier N' columns (Tier 1-{max_tier}) found in the merged data")
+
+    # Dedupe on (type, value) rather than plain equality, so a numeric CAS
+    # value stored as a float in one tier and an int in another (which
+    # Python treats as == to each other) isn't silently collapsed into one
+    # entry while other representations of the same value are not - either
+    # every distinct raw representation survives, or none do.
+    seen = set()
+    unique_cas = []
+    for col in cas_columns:
+        for value in final_df[col]:
+            if pd.isna(value):
+                continue
+            if str(value).strip().lower() in ("", "not assessed"):
+                continue
+            key = (type(value), value)
+            if key not in seen:
+                seen.add(key)
+                unique_cas.append(value)
+
+    cas_df = pd.DataFrame(unique_cas, columns=["CAS"])
+    cas_df.to_excel(output_file, index=False)
+
+    print(f"Saved {len(cas_df)} unique CAS to '{output_file}'")
+    return cas_df
 
 ### CLI entry point - only runs when this file is executed directly, not when
 ### it is imported (e.g. by MAS_generator_app.py, which reuses the functions
@@ -370,6 +422,11 @@ if __name__ == "__main__":
         spinner_stop = start_spinner("Saving")
         try:
             join_to_excel(final_df, output_file)
+            cas_output_file = os.path.splitext(output_file)[0] + "_unique_CAS.xlsx"
+            try:
+                export_unique_cas(final_df, max_tier, cas_output_file)
+            except KeyError as e:
+                print(f"Skipping unique CAS list: {e}")
         finally:
             spinner_stop.set()
     print("--------------------------------------------------------------")
