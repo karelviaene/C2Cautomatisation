@@ -245,7 +245,13 @@ def check_json(CASall, API_key, save_json_dirr):
                     status_data = status_response.json()
                     job_status = status_data.get("status")
                     _log(f"Chunk {job['index']}: Job status: {job_status}")
-                    if job_status not in ["STARTED", "EXECUTING"]:
+                    # Only isCompleted (SUCCESS/FAILED/CANCELLED) means the job is
+                    # actually done. The API also reports an intermediate "WAITING"
+                    # status between EXECUTING steps - treating that as terminal (the
+                    # old check just excluded STARTED/EXECUTING) grabbed the response's
+                    # missing "output" key as [] and silently returned empty results
+                    # for otherwise-valid CAS numbers.
+                    if status_data.get("isCompleted"):
                         job["done"] = True
                         job["output"] = status_data.get("output", [])
                 elif status_response.status_code in [400, 404]:

@@ -3829,6 +3829,15 @@ def build_c2c_assessment_df(scenarios_df, db_path, include_mixture_rule_db_detai
             c2c_df[col] = c2c_df["_orig_row_idx"].map(tier_lookup[col])
         c2c_df.drop(columns=["_orig_row_idx"], inplace=True)
 
+    # Organohalogen/Toxic metal/SVHC chemical-class flags (CHEMICALCLASS) - same data the
+    # mixture-rules pipeline's active_scaffold_df already carries (see
+    # analyse_the_dataset_with_mixture_rules), added here too so build_overview_df's
+    # "Contains organohalogens"/"Contains toxic metals"/"SVHC" columns (CHEMICAL_CLASS_RISK_FLAGS)
+    # are also populated for quick assessment - and for mixture rules' own detailed_overview,
+    # which shares this same builder.
+    chemical_class_df = extract_chemical_class(cas_list, db_path)
+    c2c_df = c2c_df.merge(chemical_class_df, on="CAS", how="left")
+
     # human-friendly column names for the saved excel
     rename_map = {
         "final_material_map": "Final Material Map",
