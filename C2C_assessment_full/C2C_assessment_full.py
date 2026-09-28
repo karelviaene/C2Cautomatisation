@@ -3798,9 +3798,12 @@ def build_c2c_assessment_df(scenarios_df, db_path, include_mixture_rule_db_detai
     c2c_df = scenarios_df[base_cols].copy()
     # Keep the per-tier running-% columns (if calculate_row_contributions() produced them)
     # OUT of base_cols on purpose - they must land AFTER the hazard columns merged in below,
-    # not before, since "N".."AH" in _apply_colour_conditional_formatting/the template's own
-    # formulas hardcode the hazard columns' position as starting right after the base
-    # columns. Re-attached via the original row index (preserved below through the merge)
+    # not before and not in between, since _hazard_col_range/_apply_colour_conditional_formatting
+    # (in save_detailed_overview_only) assume the 21 "C2C assessment <endpoint>" columns are
+    # CONTIGUOUS - the range is detected dynamically from wherever they actually land, but
+    # only the first/last column's position, so anything inserted between two hazard columns
+    # would silently colour-format cells that were never merged from a hazard endpoint at all.
+    # Re-attached via the original row index (preserved below through the merge)
     # rather than positionally, so this stays correct even if the hazards merge ever
     # duplicates a row (e.g. more than one hazard match for the same CAS).
     tier_cols = _sorted_tier_contribution_cols(scenarios_df.columns)
@@ -3809,6 +3812,17 @@ def build_c2c_assessment_df(scenarios_df, db_path, include_mixture_rule_db_detai
         c2c_df["_orig_row_idx"] = c2c_df.index
 
     cas_list = clean_cas_values(c2c_df["CAS"].tolist())
+
+    # Harmonized/Organohalogen/Toxic metal/SVHC chemical-class flags (CHEMICALCLASS) - same
+    # data the mixture-rules pipeline's active_scaffold_df already carries (see
+    # analyse_the_dataset_with_mixture_rules). Merged in BEFORE the hazard colour block so
+    # they land immediately before "C2C assessment carcinogenicity" in the detailed_overview,
+    # for both quick assessment and mixture rules (both share this builder) - build_overview_df's
+    # "Contains organohalogens"/"Contains toxic metals"/"SVHC" columns (CHEMICAL_CLASS_RISK_FLAGS)
+    # read these raw columns by name, so their position here doesn't affect that.
+    chemical_class_df = extract_chemical_class(cas_list, db_path)
+    c2c_df = c2c_df.merge(chemical_class_df, on="CAS", how="left")
+
     hazards_df, missing_cas_df = extract_colour_assessment_C2C(cas_list, db_path)
     if not missing_cas_df.empty:
         print("CAS missing from COLOUR_ASSESSMENT_C2C:", missing_cas_df)
@@ -3828,15 +3842,6 @@ def build_c2c_assessment_df(scenarios_df, db_path, include_mixture_rule_db_detai
         for col in tier_cols:
             c2c_df[col] = c2c_df["_orig_row_idx"].map(tier_lookup[col])
         c2c_df.drop(columns=["_orig_row_idx"], inplace=True)
-
-    # Organohalogen/Toxic metal/SVHC chemical-class flags (CHEMICALCLASS) - same data the
-    # mixture-rules pipeline's active_scaffold_df already carries (see
-    # analyse_the_dataset_with_mixture_rules), added here too so build_overview_df's
-    # "Contains organohalogens"/"Contains toxic metals"/"SVHC" columns (CHEMICAL_CLASS_RISK_FLAGS)
-    # are also populated for quick assessment - and for mixture rules' own detailed_overview,
-    # which shares this same builder.
-    chemical_class_df = extract_chemical_class(cas_list, db_path)
-    c2c_df = c2c_df.merge(chemical_class_df, on="CAS", how="left")
 
     # human-friendly column names for the saved excel
     rename_map = {
