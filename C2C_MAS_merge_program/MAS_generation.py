@@ -105,14 +105,21 @@ def get_choice():
         else:
             print("Invalid input. Please enter 'a' or 'b'.")
 ### normalize a join-key column safely, regardless of its original dtype
-def normalize_key_column(series):
+def normalize_key_column(series, blank_context=None):
     """
     Turns a column into normalized (stripped, lowercased) string keys for joining,
     without corrupting the values along the way:
-    - blanks/NaN each get their own unique, unmatchable sentinel instead of
-      becoming the literal string "nan" (or plain NaN/None, which pandas'
-      merge treats as equal to other NaNs). Without this, every blank row in
-      one sheet would silently join to every blank row in the other.
+    - blanks/NaN become a sentinel tied to `blank_context` instead of the
+      literal string "nan" (or plain NaN/None, which pandas' merge treats as
+      equal to other NaNs). A blank in "Tier 2 Supplier" is a legitimate
+      value (e.g. "no supplier assigned yet for this compound") and should
+      still join to the matching blank "Tier 2 Supplier" on the other sheet,
+      so blanks sharing the same `blank_context` produce the same sentinel
+      and match each other. Blanks from a different context (e.g. "Tier 3
+      Material" vs "Tier 2 Supplier") get a different sentinel, so they never
+      cross-match each other. When `blank_context` is omitted, each blank
+      still gets its own unique, unmatchable sentinel (the old behaviour) -
+      used where blanks should never join to anything.
     - whole-number floats (e.g. 12345.0, which is how pandas reads a numeric
       code column with any blank cells) are rendered as "12345", not
       "12345.0", so they still match the same code stored as a plain int or
@@ -122,6 +129,8 @@ def normalize_key_column(series):
     """
     def _key(value):
         if pd.isna(value):
+            if blank_context is not None:
+                return f"__blank_{blank_context}__"
             return f"__blank_{uuid.uuid4().hex}__"
         if isinstance(value, float) and value.is_integer():
             value = int(value)
@@ -169,7 +178,7 @@ def join_tier_sheets(input_file, max_tier):
     # Read first sheet
     final_df = pd.read_excel(input_file, sheet_name=start_sheet)
 
-    final_df['Normalized Material 1'] = normalize_key_column(final_df['Tier 1 Material'])
+    final_df['Normalized Material 1'] = normalize_key_column(final_df['Tier 1 Material'], blank_context="material_1")
 
     reached_tier = 1
     # Loop through tier transition sheets
@@ -191,9 +200,9 @@ def join_tier_sheets(input_file, max_tier):
 
         # Normalize the names so they are not with spaces and not case-sensitive
         normalized_material = f"Normalized Material {i}"
-        next_df[normalized_material] = normalize_key_column(next_df[join_column_name])
+        next_df[normalized_material] = normalize_key_column(next_df[join_column_name], blank_context=f"material_{i}")
         normalized_next_tier_column_name = f"Normalized Material {i+1}"
-        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_tier_column_name])
+        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_tier_column_name], blank_context=f"material_{i+1}")
 
         join_column = normalized_material
 
@@ -243,8 +252,8 @@ def join_tier_sheets_with_suppliers(input_file, max_tier):
     print(f"Using start sheet: {start_sheet}")
 
     final_df = pd.read_excel(input_file, sheet_name=start_sheet)
-    final_df['Normalized Material 1'] = normalize_key_column(final_df['Tier 1 Material'])
-    final_df['Normalized Supplier 1'] = normalize_key_column(final_df['Tier 1 Supplier'])
+    final_df['Normalized Material 1'] = normalize_key_column(final_df['Tier 1 Material'], blank_context="material_1")
+    final_df['Normalized Supplier 1'] = normalize_key_column(final_df['Tier 1 Supplier'], blank_context="supplier_1")
 
     reached_tier = 1
     for i in range(1, max_tier):
@@ -266,15 +275,15 @@ def join_tier_sheets_with_suppliers(input_file, max_tier):
         next_df = pd.read_excel(input_file, sheet_name=sheet_name)
 
         material_col = f"Normalized Material {i}"
-        next_df[material_col] = normalize_key_column(next_df[material_col_to_norm])
+        next_df[material_col] = normalize_key_column(next_df[material_col_to_norm], blank_context=f"material_{i}")
         supplier_col = f"Normalized Supplier {i}"
-        next_df[supplier_col] = normalize_key_column(next_df[supplier_col_to_norm])
+        next_df[supplier_col] = normalize_key_column(next_df[supplier_col_to_norm], blank_context=f"supplier_{i}")
 
         normalized_next_tier_column_name = f"Normalized Material {i+1}"
-        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_material_col])
+        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_material_col], blank_context=f"material_{i+1}")
 
         normalized_next_tier_column_name = f"Normalized Supplier {i+1}"
-        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_supp_col])
+        next_df[normalized_next_tier_column_name] = normalize_key_column(next_df[next_supp_col], blank_context=f"supplier_{i+1}")
 
         # Check columns exist - a data problem (not just "no more tiers"), so
         # raise just like join_tier_sheets does, instead of silently

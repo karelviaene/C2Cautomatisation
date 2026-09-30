@@ -3733,10 +3733,25 @@ def assessment_with_no_mixture_rules(df_product, cas_list, db_path, colour_df=No
     result_df = pd.DataFrame(rows)
 
     # Unknown composition/CAS (the same completeness gate used by every other endpoint
-    # group) also invalidates this assessment's results for that hom mat.
+    # group) also invalidates this assessment's results for that hom mat - but rather than
+    # overwriting with a bare, colour-less NOT_FULL_COMPOSITION_LABEL (which every
+    # downstream classify_colour() call - _worst_colour_by_group's worst-across-scenarios
+    # aggregation, the overview/risk_assessed builders, etc. - would then silently read back
+    # as GREY, discarding the true worst colour among the KNOWN chemicals), wrap that
+    # already-computed worst-case colour into INCOMPLETE_COMP_LABEL instead, exactly like
+    # _apply_incomplete_comp_fallback does for the 8 mixture-rule-capable endpoints. The
+    # per-endpoint loop above already excludes "not assessed" rows from `relevant`, so
+    # result_df's current value here IS already the worst colour among this hom mat's
+    # known-identity chemicals - only its wrapping needs to change, not its value.
     incomplete_hom_materials = _hom_materials_with_unknown_composition(df_product)
     endpoint_cols = [f"C2C {label}" for label in NO_MIXTURE_RULES_ENDPOINTS.values()]
-    result_df = _apply_not_full_composition_label(result_df, incomplete_hom_materials, endpoint_cols)
+    if incomplete_hom_materials and not result_df.empty:
+        pair_keys = list(zip(result_df["Product"], result_df["hom_material"]))
+        mask = pd.Series([p in incomplete_hom_materials for p in pair_keys], index=result_df.index)
+        for col in endpoint_cols:
+            result_df.loc[mask, col] = result_df.loc[mask, col].apply(
+                lambda colour: INCOMPLETE_COMP_LABEL.format(colour=colour)
+            )
     return result_df
 
 
@@ -4872,7 +4887,12 @@ def save_c2c_assessment_workbook_static(
 
     overview_last_data_row = max(len(overview_left), len(overview_right), 1) + 1
     overview_last_col = 7 + len(overview_right.columns)
-    overview_spacer_col = overview_right_start_col + overview_right.columns.get_loc(_OVERVIEW_SPACER_COL)
+    # int(...): get_loc() only returns a plain position here because _OVERVIEW_SPACER_COL
+    # ("") is inserted into overview_right exactly once (build_overview_df) - a duplicate
+    # label would make it return a slice/array instead, which isn't hashable for the
+    # {overview_spacer_col} set below. The cast makes that invariant explicit and fails
+    # loudly instead of silently building a broken set if it's ever violated.
+    overview_spacer_col = overview_right_start_col + int(overview_right.columns.get_loc(_OVERVIEW_SPACER_COL))
     _style_overview_sheet(
         ws_overview, last_col=overview_last_col, last_data_row=overview_last_data_row,
         extra_spacer_cols={overview_spacer_col},
