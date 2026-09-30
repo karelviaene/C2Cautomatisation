@@ -3641,15 +3641,15 @@ def derive_paths(db_path):
     project_root = os.path.dirname(os.path.dirname(db_path))  # goes to folder new_DB_tests
 
     # save api key
-    API_key = os.path.join(project_root, "Streamlit info", "NextSDS API key.txt")
+    API_key = os.path.join(project_root, "Info for CnL", "NextSDS API key.txt")
     folder_excels = os.path.join(project_root, "CPS")
     save_json_dirr = os.path.join(project_root, "JSON")
     folder = folder_excels
     image_dir = os.path.join(project_root, "Chem_image")
     template_path = os.path.join(project_root, "Template", "CPS_CAS TEMPLATE V2.xlsm")
-    folder_for_saving = os.path.join(project_root, "Downloads from Streamlit")
-    folder_for_saving_excel_exports = os.path.join(project_root, "Downloads from Streamlit", "Report exports")
-    folder_for_saving_CPS = os.path.join(project_root, "Downloads from Streamlit", "CPS downloads")
+    folder_for_saving = os.path.join(project_root, "Exports from the app")
+    folder_for_saving_excel_exports = os.path.join(project_root, "Exports from the app", "Report exports")
+    folder_for_saving_CPS = os.path.join(project_root, "Exports from the app", "CPS downloads")
     db_backup_for_saving = os.path.join(project_root, "Database", "Backups")
     DB_excel_saving_path = folder_for_saving
 
