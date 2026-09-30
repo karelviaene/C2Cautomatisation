@@ -1,16 +1,4 @@
 ### C2C Database Communication - desktop app
-### A small tkinter window wrapping DB_communication_core.py's pipeline (originally a
-### mechanical, non-Streamlit port of streamlit_DB_communication_CURRENT.py, since
-### patched - see FIXED ISSUES below): pick the CAS excel (or use every CAS already
-### in the CPS folder) and the SQLite database inline (no instructional pop-ups, just
-### Browse buttons and a path field), then either "Run CAS Screening" (backup, ECHA
-### CnL lookup, DB sync, CPS excel generation/ingestion, report export) or "Export DB
-### to Excel" - watch a bouncing magnifying glass while it works, get a "Done!"
-### screen with confetti once finished.
-### Reuses DB_communication_core.py's logic by import (that file is import-only, no
-### __main__ guard that runs anything) rather than duplicating it - keep the two in
-### sync if the pipeline itself changes. The original streamlit_DB_communication_
-### CURRENT.py source file is never read or modified by this app or by core.py.
 
 
 import os
