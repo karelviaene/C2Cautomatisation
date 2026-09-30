@@ -9,6 +9,7 @@ from tkinter import filedialog
 from tkinter import messagebox
 import re
 import os
+import sys
 import shutil
 from datetime import datetime
 from tqdm import tqdm
@@ -4044,9 +4045,14 @@ def build_percent_assessed_detailed_df(scenarios_df):
 ### Status/CAS/%-contributions/chemical-class raw columns + the mixture-rule-COMPUTED 8
 ### endpoint values broadcast per (Product, Hom Mat)) - NOT the per-CAS RAW-colour dataframe
 ### used for detailed_overview (build_c2c_assessment_df), which stays untouched (item 5).
+### Resolves to this file's own folder in normal dev/import use, and to the PyInstaller
+### onefile extraction folder (sys._MEIPASS) when running as a frozen .app - the sibling
+### "C2C_Quick_assessment_program" folder this used to point into has since been archived,
+### so the template now ships as this program's own bundled copy instead (templates/).
+_RESOURCE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
 MIXTURE_RULES_TEMPLATE_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "C2C_Quick_assessment_program", "templates",
-    "C2C_assessment_template.xlsx",
+    _RESOURCE_DIR, "templates", "C2C_assessment_template.xlsx",
 )
 
 DETAILED_OVERVIEW_ROW_CAP = 50000
